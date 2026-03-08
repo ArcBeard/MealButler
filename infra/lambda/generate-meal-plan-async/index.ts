@@ -82,6 +82,7 @@ Include breakfast, lunch, dinner, and snack for each day. No markdown, no explan
         Item: {
           pk,
           sk: `MEALPLAN#${weekStart}`,
+          status: 'ready',
           mealPlan,
           weekStart,
           createdAt: new Date().toISOString(),

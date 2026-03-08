@@ -30,6 +30,16 @@ function ttl90Days(): number {
   return Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60
 }
 
+/** Get the ISO date string (YYYY-MM-DD) for the Monday of the current week */
+function getCurrentWeekMonday(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const diff = day === 0 ? 6 : day - 1
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - diff)
+  return monday.toISOString().split('T')[0]!
+}
+
 /** Collect streamed response chunks from Bedrock Agent into a single string */
 async function collectAgentResponse(response: any): Promise<string> {
   let result = ''
@@ -145,6 +155,23 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
               pk,
               sk: 'PREFERENCES',
               ...preferences,
+              ttl: ttl90Days(),
+            },
+          }),
+        )
+
+        // Write a "generating" placeholder so the frontend can distinguish
+        // "plan in progress" from "no plan at all"
+        const weekStart = getCurrentWeekMonday()
+        await dynamodb.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              pk,
+              sk: `MEALPLAN#${weekStart}`,
+              status: 'generating',
+              weekStart,
+              createdAt: new Date().toISOString(),
               ttl: ttl90Days(),
             },
           }),

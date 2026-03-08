@@ -74,14 +74,16 @@ const selectedDayLabel = computed(() =>
 const weekPlan = ref<DayPlan[] | null>(null)
 
 async function loadWeekPlan() {
-  const plan = await mealPlanStore.fetchWeekPlan(mondayISO.value)
-  if (plan) {
+  const { status, plan } = await mealPlanStore.fetchWeekPlan(mondayISO.value)
+  if (status === 'ready' && plan) {
     weekPlan.value = plan
-  } else if (!error.value) {
-    // No plan yet — start polling (plan is being generated)
+  } else if (status === 'generating') {
+    // Plan is being generated — poll until ready
     weekPlan.value = null
     const polled = await mealPlanStore.pollForPlan(mondayISO.value)
     weekPlan.value = polled
+  } else {
+    weekPlan.value = null
   }
 }
 

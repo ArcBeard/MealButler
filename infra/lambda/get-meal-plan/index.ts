@@ -78,6 +78,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       statusCode: 200,
       headers: CORS_HEADERS,
       body: JSON.stringify({
+        status: result.Item.status ?? 'ready',
         week: result.Item.weekStart,
         mealPlan: result.Item.mealPlan,
         createdAt: result.Item.createdAt,
