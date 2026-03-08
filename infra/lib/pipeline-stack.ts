@@ -13,6 +13,9 @@ export class PipelineStack extends cdk.Stack {
         input: CodePipelineSource.connection('ArcBeard/MealButler', 'main', {
           connectionArn: 'arn:aws:codeconnections:us-east-1:289137415596:connection/347dc364-653b-4d10-a862-0204aeac1cb9',
         }),
+        installCommands: [
+          'n 22',
+        ],
         commands: [
           'npm ci',
           'npm run build',
