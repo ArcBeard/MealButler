@@ -1,10 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAgentChatStore } from '@/stores/agentChat'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
+      name: 'agent',
+      component: () => import('@/views/AgentChatView.vue'),
+    },
+    {
+      path: '/calendar',
       name: 'calendar',
       component: () => import('@/views/CalendarView.vue'),
     },
@@ -24,6 +30,15 @@ const router = createRouter({
       component: () => import('@/views/FamilySettingsView.vue'),
     },
   ],
+})
+
+router.beforeEach((to) => {
+  if (to.path !== '/') {
+    const { isComplete } = useAgentChatStore()
+    if (!isComplete) {
+      return '/'
+    }
+  }
 })
 
 export default router
