@@ -7,11 +7,24 @@ import type { DayPlan } from '@/types/meals'
 
 type PlanStatus = 'ready' | 'generating' | 'not_found'
 
+function getCurrentWeekMonday(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+  const d = new Date(now)
+  d.setDate(diff)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
 export const useMealPlanStore = defineStore('mealPlan', () => {
   const weekPlans = ref<Record<string, DayPlan[]>>({})
   const isLoading = ref(false)
   const isGenerating = ref(false)
   const error = ref<string | null>(null)
+  const hasCurrentWeekPlan = ref(false)
 
   /** Fetch a week's meal plan. Returns the status so callers know what happened. */
   async function fetchWeekPlan(weekStart: string): Promise<{ status: PlanStatus; plan: DayPlan[] | null }> {
@@ -98,6 +111,12 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
     }
   }
 
+  /** Check if the current week has a ready meal plan. Called on app startup. */
+  async function initialize() {
+    const { status } = await fetchWeekPlan(getCurrentWeekMonday())
+    hasCurrentWeekPlan.value = status === 'ready'
+  }
+
   function clearCache() {
     weekPlans.value = {}
   }
@@ -107,6 +126,8 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
     isLoading,
     isGenerating,
     error,
+    hasCurrentWeekPlan,
+    initialize,
     fetchWeekPlan,
     pollForPlan,
     clearCache,

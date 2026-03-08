@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAgentChatStore } from '@/stores/agentChat'
 import { useAuthStore } from '@/stores/auth'
+import { useMealPlanStore } from '@/stores/mealPlan'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -38,9 +39,17 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  const { hasCurrentWeekPlan } = useMealPlanStore()
+  const { isComplete } = useAgentChatStore()
+
+  // Authenticated user with an existing meal plan: skip chat, go to calendar
+  if (to.path === '/' && hasCurrentWeekPlan) {
+    return '/calendar'
+  }
+
+  // Allow access to protected routes if chat is complete OR a meal plan exists
   if (to.path !== '/') {
-    const { isComplete } = useAgentChatStore()
-    if (!isComplete) {
+    if (!isComplete && !hasCurrentWeekPlan) {
       return '/'
     }
   }
