@@ -45,15 +45,16 @@ export class FrontendStack extends cdk.Stack {
     })
 
     // ─── Deploy Frontend Assets ──────────────────────────────────────
-    new s3deploy.BucketDeployment(this, 'DeployFrontend', {
+    const deployment = new s3deploy.BucketDeployment(this, 'DeployFrontend', {
       sources: [s3deploy.Source.asset(path.join(__dirname, '../../dist'))],
       destinationBucket: bucket,
       distribution,
       distributionPaths: ['/*'],
+      prune: false,
     })
 
-    // ─── Runtime Config (solves chicken-and-egg with API URL) ────────
-    new cr.AwsCustomResource(this, 'WriteConfigJson', {
+    // ─── Runtime Config (written AFTER deployment to avoid being pruned) ──
+    const configResource = new cr.AwsCustomResource(this, 'WriteConfigJson', {
       onCreate: {
         service: 'S3',
         action: 'putObject',
@@ -80,6 +81,7 @@ export class FrontendStack extends cdk.Stack {
         resources: [`${bucket.bucketArn}/*`],
       }),
     })
+    configResource.node.addDependency(deployment)
 
     // ─── Outputs ─────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'DistributionDomainName', {

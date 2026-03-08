@@ -67,7 +67,7 @@ export class BackendStack extends cdk.Stack {
       functionName: 'MealApp-VerifyIngredients',
       environment: {
         TABLE_NAME: table.tableName,
-        MODEL_ID: 'anthropic.claude-3-haiku-20240307-v1:0',
+        MODEL_ID: 'anthropic.claude-sonnet-4-6',
       },
     })
     table.grantReadData(verifyIngredientsFn)
@@ -75,7 +75,7 @@ export class BackendStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel'],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-sonnet-4-6`,
         ],
       }),
     )
@@ -89,7 +89,7 @@ export class BackendStack extends cdk.Stack {
             new iam.PolicyStatement({
               actions: ['bedrock:InvokeModel'],
               resources: [
-                `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+                `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-sonnet-4-6`,
               ],
             }),
           ],
@@ -108,7 +108,7 @@ export class BackendStack extends cdk.Stack {
 
     const agent = new bedrock.CfnAgent(this, 'MealAppAgent', {
       agentName: 'MealAppJeeves',
-      foundationModel: 'anthropic.claude-3-haiku-20240307-v1:0',
+      foundationModel: 'anthropic.claude-sonnet-4-6',
       instruction: [
         'You are Jeeves, a refined and knowledgeable butler who assists with meal planning.',
         'You operate in two modes:',
