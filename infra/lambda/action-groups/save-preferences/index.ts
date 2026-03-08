@@ -31,8 +31,12 @@ export const handler = async (event: ActionGroupEvent) => {
 
   try {
     const sessionId = getParam(event.parameters, 'sessionId')
+    const userId = getParam(event.parameters, 'userId')
     const prefsJson = getParam(event.parameters, 'preferences')
     const prefs = JSON.parse(prefsJson)
+
+    // Use USER# key when userId is provided, fall back to SESSION#
+    const pk = userId ? `USER#${userId}` : `SESSION#${sessionId}`
 
     // Convert comma-separated strings to arrays
     const dietary = prefs.dietary ? prefs.dietary.split(',').map((s: string) => s.trim()) : []
@@ -42,7 +46,7 @@ export const handler = async (event: ActionGroupEvent) => {
       new PutCommand({
         TableName: TABLE_NAME,
         Item: {
-          pk: `SESSION#${sessionId}`,
+          pk,
           sk: 'PREFERENCES',
           household: prefs.household || '',
           dietary,

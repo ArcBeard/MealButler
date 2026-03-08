@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Menu, Sun, Moon, Monitor } from 'lucide-vue-next'
+import { Menu, Sun, Moon, Monitor, LogOut, LogIn } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,9 +13,12 @@ import {
 import { storeToRefs } from 'pinia'
 import { useColorModeStore } from '@/stores/colorMode'
 import { useNavigationStore } from '@/stores/navigation'
+import { useAuthStore } from '@/stores/auth'
 
 const { mode } = storeToRefs(useColorModeStore())
 const { toggleNav } = useNavigationStore()
+const authStore = useAuthStore()
+const { user, isAuthenticated, isAuthConfigured, userInitials } = storeToRefs(authStore)
 </script>
 
 <template>
@@ -31,15 +34,41 @@ const { toggleNav } = useNavigationStore()
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="icon" class="rounded-full text-primary-foreground hover:bg-primary-foreground/10">
             <Avatar class="h-8 w-8 bg-primary-foreground/20">
-              <AvatarFallback class="bg-transparent text-primary-foreground">U</AvatarFallback>
+              <AvatarImage v-if="user?.picture" :src="user.picture" />
+              <AvatarFallback class="bg-transparent text-primary-foreground">{{ userInitials }}</AvatarFallback>
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Login</DropdownMenuItem>
-          <DropdownMenuItem>Sign Up</DropdownMenuItem>
+          <!-- Authenticated state -->
+          <template v-if="isAuthenticated">
+            <DropdownMenuLabel>{{ user?.email }}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @click="authStore.signOut()">
+              <LogOut class="mr-2 h-4 w-4" />
+              Sign Out
+            </DropdownMenuItem>
+          </template>
+
+          <!-- Unauthenticated state (auth configured) -->
+          <template v-else-if="isAuthConfigured">
+            <DropdownMenuLabel>Sign In</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @click="authStore.signInWithGoogle()">
+              <LogIn class="mr-2 h-4 w-4" />
+              Sign in with Google
+            </DropdownMenuItem>
+            <DropdownMenuItem @click="authStore.signInWithHostedUI()">
+              <LogIn class="mr-2 h-4 w-4" />
+              Sign in with Email
+            </DropdownMenuItem>
+          </template>
+
+          <!-- Auth not configured (local dev) — no auth UI -->
+          <template v-else>
+            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          </template>
+
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Theme</DropdownMenuLabel>
           <DropdownMenuItem @click="mode = 'light'">

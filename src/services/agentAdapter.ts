@@ -1,6 +1,7 @@
 import type { AgentAdapter, AgentResponse, ConversationStep, MealPreferences } from '@/types/agent'
 import { conversationSteps, buildSummaryMessage } from '@/data/agentConversation'
 import { getConfig } from '@/services/config'
+import { useAuthStore } from '@/stores/auth'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -123,6 +124,10 @@ function createBedrockAgent(preferences: MealPreferences): AgentAdapter {
 
   return {
     async getGreeting(): Promise<AgentResponse> {
+      const config = await getConfig()
+      if (!config.apiUrl) {
+        return createMockAgent(preferences).getGreeting()
+      }
       return this.sendMessage('hello', 'greeting')
     },
 
@@ -134,9 +139,16 @@ function createBedrockAgent(preferences: MealPreferences): AgentAdapter {
       }
 
       try {
+        const authStore = useAuthStore()
+        const token = await authStore.getToken()
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) {
+          headers['Authorization'] = token
+        }
+
         const response = await fetch(`${config.apiUrl}/api/agent`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             sessionId,
             inputText: message,

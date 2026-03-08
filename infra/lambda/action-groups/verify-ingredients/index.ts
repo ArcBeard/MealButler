@@ -2,7 +2,7 @@ import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedroc
 
 const bedrockRuntime = new BedrockRuntimeClient({})
 
-const MODEL_ID = process.env.MODEL_ID || 'anthropic.claude-sonnet-4-6'
+const MODEL_ID = process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-6'
 
 interface ActionGroupEvent {
   actionGroup: string

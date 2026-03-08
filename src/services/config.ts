@@ -1,5 +1,13 @@
+interface CognitoConfig {
+  userPoolId: string
+  clientId: string
+  domain: string
+  region: string
+}
+
 interface AppConfig {
   apiUrl: string
+  cognito?: CognitoConfig
 }
 
 let cachedConfig: AppConfig | null = null

@@ -2,6 +2,7 @@ import {
   BedrockAgentRuntimeClient,
   InvokeAgentCommand,
 } from '@aws-sdk/client-bedrock-agent-runtime'
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb'
 import { mapAgentResponse } from './response-mapper'
@@ -9,11 +10,13 @@ import { STEP_CONFIG, buildSummaryMessage } from './step-config'
 import type { MealPreferences } from './step-config'
 
 const bedrockAgent = new BedrockAgentRuntimeClient({})
+const lambdaClient = new LambdaClient({})
 const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
 const TABLE_NAME = process.env.TABLE_NAME!
 const AGENT_ID = process.env.AGENT_ID!
 const AGENT_ALIAS_ID = process.env.AGENT_ALIAS_ID!
+const GENERATE_FN_NAME = process.env.GENERATE_FN_NAME!
 
 const CORS_HEADERS = {
   'Content-Type': 'application/json',
@@ -53,7 +56,16 @@ interface APIGatewayProxyEvent {
   headers: Record<string, string | undefined>
   pathParameters: Record<string, string | undefined> | null
   queryStringParameters: Record<string, string | undefined> | null
-  requestContext: Record<string, any>
+  requestContext: {
+    authorizer?: {
+      claims?: {
+        sub?: string
+        email?: string
+        [key: string]: string | undefined
+      }
+    }
+    [key: string]: any
+  }
   resource: string
   path: string
   isBase64Encoded: boolean
@@ -86,6 +98,10 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         body: JSON.stringify({ error: 'Missing required fields: sessionId, step' }),
       }
     }
+
+    // Use Cognito sub for authenticated users, fall back to session ID
+    const cognitoSub = event.requestContext?.authorizer?.claims?.sub
+    const pk = cognitoSub ? `USER#${cognitoSub}` : `SESSION#${sessionId}`
 
     // Greeting step: return the first step config directly, no agent call
     if (step === 'greeting') {
@@ -120,37 +136,41 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         }
       }
 
-      // Confirmation: save preferences and invoke agent for meal plan generation
+      // Confirmation: save preferences and trigger async meal plan generation
       if (preferences) {
         await dynamodb.send(
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
-              pk: `SESSION#${sessionId}`,
+              pk,
               sk: 'PREFERENCES',
               ...preferences,
               ttl: ttl90Days(),
             },
           }),
         )
+
+        // Fire-and-forget: invoke generate Lambda asynchronously
+        if (GENERATE_FN_NAME) {
+          await lambdaClient.send(
+            new InvokeCommand({
+              FunctionName: GENERATE_FN_NAME,
+              InvocationType: 'Event',
+              Payload: new TextEncoder().encode(
+                JSON.stringify({ pk, preferences }),
+              ),
+            }),
+          )
+        }
       }
-
-      // Invoke the agent to generate a meal plan
-      const command = new InvokeAgentCommand({
-        agentId: AGENT_ID,
-        agentAliasId: AGENT_ALIAS_ID,
-        sessionId,
-        inputText: `Generate a weekly meal plan based on these preferences: ${JSON.stringify(preferences)}`,
-      })
-
-      const response = await bedrockAgent.send(command)
-      const agentText = await collectAgentResponse(response)
 
       return {
         statusCode: 200,
         headers: CORS_HEADERS,
         body: JSON.stringify({
-          content: agentText,
+          content:
+            "Preferences saved! I'm generating your personalized meal plan now. " +
+            "Head over to the calendar to see it once it's ready! 🎩",
           nextStep: 'complete',
         }),
       }

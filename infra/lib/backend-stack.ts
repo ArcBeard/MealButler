@@ -6,12 +6,17 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as bedrock from 'aws-cdk-lib/aws-bedrock'
 import * as apigateway from 'aws-cdk-lib/aws-apigateway'
+import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as path from 'path'
+
+interface BackendStackProps extends cdk.StackProps {
+  userPool?: cognito.IUserPool
+}
 
 export class BackendStack extends cdk.Stack {
   public readonly apiUrl: string
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: BackendStackProps) {
     super(scope, id, props)
 
     // ─── DynamoDB Table (single-table design) ────────────────────────
@@ -67,30 +72,58 @@ export class BackendStack extends cdk.Stack {
       functionName: 'MealApp-VerifyIngredients',
       environment: {
         TABLE_NAME: table.tableName,
-        MODEL_ID: 'anthropic.claude-sonnet-4-6',
+        MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
       },
     })
     table.grantReadData(verifyIngredientsFn)
+
+    // ─── Inference Profile ARN (shared by agent role + verify-ingredients) ──
+    const inferenceProfileArn = `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/us.anthropic.claude-sonnet-4-6`
+    const foundationModelArns = [
+      'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6',
+      'arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-6',
+      'arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6',
+    ]
+
     verifyIngredientsFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ['bedrock:InvokeModel'],
-        resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-sonnet-4-6`,
-        ],
+        actions: ['bedrock:InvokeModel*'],
+        resources: [inferenceProfileArn],
+      }),
+    )
+    verifyIngredientsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel*'],
+        resources: foundationModelArns,
+        conditions: {
+          StringLike: {
+            'bedrock:InferenceProfileArn': inferenceProfileArn,
+          },
+        },
       }),
     )
 
     // ─── Bedrock Agent ───────────────────────────────────────────────
+
     const agentRole = new iam.Role(this, 'BedrockAgentRole', {
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
       inlinePolicies: {
         BedrockInvoke: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
-              actions: ['bedrock:InvokeModel'],
-              resources: [
-                `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-sonnet-4-6`,
-              ],
+              sid: 'InvokeInferenceProfile',
+              actions: ['bedrock:InvokeModel*'],
+              resources: [inferenceProfileArn],
+            }),
+            new iam.PolicyStatement({
+              sid: 'InvokeFoundationModels',
+              actions: ['bedrock:InvokeModel*'],
+              resources: foundationModelArns,
+              conditions: {
+                StringLike: {
+                  'bedrock:InferenceProfileArn': inferenceProfileArn,
+                },
+              },
             }),
           ],
         }),
@@ -108,7 +141,7 @@ export class BackendStack extends cdk.Stack {
 
     const agent = new bedrock.CfnAgent(this, 'MealAppAgent', {
       agentName: 'MealAppJeeves',
-      foundationModel: 'anthropic.claude-sonnet-4-6',
+      foundationModel: 'us.anthropic.claude-sonnet-4-6',
       instruction: [
         'You are Jeeves, a refined and knowledgeable butler who assists with meal planning.',
         'You operate in two modes:',
@@ -218,6 +251,59 @@ export class BackendStack extends cdk.Stack {
       agentAliasName: 'production',
     })
 
+    // ─── Async Meal Plan Generation Lambda ──────────────────────────
+    const generateMealPlanAsyncFn = new NodejsFunction(this, 'GenerateMealPlanAsyncFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/generate-meal-plan-async/index.ts'),
+      functionName: 'MealApp-GenerateMealPlanAsync',
+      timeout: cdk.Duration.seconds(120),
+      environment: {
+        TABLE_NAME: table.tableName,
+        MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadWriteData(generateMealPlanAsyncFn)
+
+    generateMealPlanAsyncFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel*'],
+        resources: [inferenceProfileArn],
+      }),
+    )
+    generateMealPlanAsyncFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel*'],
+        resources: foundationModelArns,
+        conditions: {
+          StringLike: {
+            'bedrock:InferenceProfileArn': inferenceProfileArn,
+          },
+        },
+      }),
+    )
+
+    // ─── Get Meal Plan Lambda ─────────────────────────────────────────
+    const getMealPlanFn = new NodejsFunction(this, 'GetMealPlanFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/get-meal-plan/index.ts'),
+      functionName: 'MealApp-GetMealPlan',
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadData(getMealPlanFn)
+
     // ─── Invoke Agent Lambda ─────────────────────────────────────────
     const invokeAgentFn = new NodejsFunction(this, 'InvokeAgentFn', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -228,6 +314,7 @@ export class BackendStack extends cdk.Stack {
         TABLE_NAME: table.tableName,
         AGENT_ID: agent.attrAgentId,
         AGENT_ALIAS_ID: agentAlias.attrAgentAliasId,
+        GENERATE_FN_NAME: generateMealPlanAsyncFn.functionName,
       },
       bundling: {
         minify: true,
@@ -253,6 +340,9 @@ export class BackendStack extends cdk.Stack {
       }),
     )
 
+    // Allow invoke-agent to trigger the async generation Lambda
+    generateMealPlanAsyncFn.grantInvoke(invokeAgentFn)
+
     // ─── API Gateway ─────────────────────────────────────────────────
     const api = new apigateway.RestApi(this, 'MealAppApi', {
       restApiName: 'MealApp API',
@@ -266,11 +356,37 @@ export class BackendStack extends cdk.Stack {
     const apiResource = api.root.addResource('api')
     const agentResource = apiResource.addResource('agent')
 
+    // Cognito authorizer (optional — only added when userPool is provided)
+    const authorizer = props?.userPool
+      ? new apigateway.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
+          cognitoUserPools: [props.userPool],
+        })
+      : undefined
+
     agentResource.addMethod(
       'POST',
       new apigateway.LambdaIntegration(invokeAgentFn, {
         timeout: cdk.Duration.seconds(29),
       }),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+
+    // GET /api/meal-plan
+    const mealPlanResource = apiResource.addResource('meal-plan')
+    mealPlanResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(getMealPlanFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
     )
 
     // ─── Outputs ─────────────────────────────────────────────────────

@@ -4,11 +4,14 @@ import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment'
-import * as cr from 'aws-cdk-lib/custom-resources'
 import * as path from 'path'
 
 interface FrontendStackProps extends cdk.StackProps {
   apiUrl: string
+  cognitoUserPoolId?: string
+  cognitoClientId?: string
+  cognitoDomain?: string
+  cognitoRegion?: string
 }
 
 export class FrontendStack extends cdk.Stack {
@@ -44,44 +47,26 @@ export class FrontendStack extends cdk.Stack {
       ],
     })
 
-    // ─── Deploy Frontend Assets ──────────────────────────────────────
-    const deployment = new s3deploy.BucketDeployment(this, 'DeployFrontend', {
-      sources: [s3deploy.Source.asset(path.join(__dirname, '../../dist'))],
+    // ─── Runtime Config + Frontend Assets (deployed together) ────────
+    const configData: Record<string, unknown> = { apiUrl: props.apiUrl }
+    if (props.cognitoUserPoolId) {
+      configData.cognito = {
+        userPoolId: props.cognitoUserPoolId,
+        clientId: props.cognitoClientId,
+        domain: props.cognitoDomain,
+        region: props.cognitoRegion,
+      }
+    }
+
+    new s3deploy.BucketDeployment(this, 'DeployFrontend', {
+      sources: [
+        s3deploy.Source.asset(path.join(__dirname, '../../dist')),
+        s3deploy.Source.jsonData('config.json', configData),
+      ],
       destinationBucket: bucket,
       distribution,
       distributionPaths: ['/*'],
-      prune: false,
     })
-
-    // ─── Runtime Config (written AFTER deployment to avoid being pruned) ──
-    const configResource = new cr.AwsCustomResource(this, 'WriteConfigJson', {
-      onCreate: {
-        service: 'S3',
-        action: 'putObject',
-        parameters: {
-          Bucket: bucket.bucketName,
-          Key: 'config.json',
-          Body: JSON.stringify({ apiUrl: props.apiUrl }),
-          ContentType: 'application/json',
-        },
-        physicalResourceId: cr.PhysicalResourceId.of('config-json'),
-      },
-      onUpdate: {
-        service: 'S3',
-        action: 'putObject',
-        parameters: {
-          Bucket: bucket.bucketName,
-          Key: 'config.json',
-          Body: JSON.stringify({ apiUrl: props.apiUrl }),
-          ContentType: 'application/json',
-        },
-        physicalResourceId: cr.PhysicalResourceId.of('config-json'),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: [`${bucket.bucketArn}/*`],
-      }),
-    })
-    configResource.node.addDependency(deployment)
 
     // ─── Outputs ─────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'DistributionDomainName', {

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { ChatMessage, ConversationStep, MealPreferences } from '@/types/agent'
 import { createAgentAdapter } from '@/services/agentAdapter'
 import { STEP_ORDER } from '@/data/agentConversation'
+import { useAuthStore } from '@/stores/auth'
 
 function emptyPreferences(): MealPreferences {
   return {
@@ -23,6 +24,8 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   const isComplete = ref(false)
   const isMultiSelect = ref(false)
   const preferences = ref<MealPreferences>(emptyPreferences())
+
+  const showLoginPrompt = ref(false)
 
   let adapter = createAgentAdapter(preferences.value)
   let messageCounter = 0
@@ -95,11 +98,43 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     }
   }
 
+  /** Stash preferences to localStorage before OAuth redirect */
+  function stashPreferences() {
+    localStorage.setItem('mealapp_stashed_preferences', JSON.stringify(preferences.value))
+  }
+
+  /** Restore stashed preferences after OAuth redirect and proceed */
+  async function restoreStashedPreferences() {
+    const stashed = localStorage.getItem('mealapp_stashed_preferences')
+    if (!stashed) return
+    localStorage.removeItem('mealapp_stashed_preferences')
+
+    const authStore = useAuthStore()
+    if (!authStore.isAuthenticated) return
+
+    // Restore preferences and send confirmation to save with auth token
+    preferences.value = JSON.parse(stashed)
+    adapter = createAgentAdapter(preferences.value)
+    await sendMessage('confirm')
+  }
+
   async function sendMessage(content: string) {
     if (isAgentTyping.value || isComplete.value) return
 
     clearLastQuickReplies()
     messages.value.push(createMessage('user', content))
+
+    // Login-before-save: if confirming at summary and auth is configured but not logged in
+    if (currentStep.value === 'summary' && !content.toLowerCase().includes('start over')) {
+      const authStore = useAuthStore()
+      if (authStore.isAuthConfigured && !authStore.isAuthenticated) {
+        stashPreferences()
+        showLoginPrompt.value = true
+        // Remove the user message we just pushed — the flow continues after login
+        messages.value.pop()
+        return
+      }
+    }
 
     isAgentTyping.value = true
     try {
@@ -143,10 +178,12 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     isAgentTyping,
     isComplete,
     isMultiSelect,
+    showLoginPrompt,
     progress,
     progressLabel,
     startConversation,
     sendMessage,
     resetConversation,
+    restoreStashedPreferences,
   }
 })

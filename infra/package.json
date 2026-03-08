@@ -10,6 +10,7 @@
   "dependencies": {
     "aws-cdk-lib": "^2.175.0",
     "constructs": "^10.4.2",
+    "@aws-sdk/client-lambda": "^3.750.0",
     "@aws-sdk/client-bedrock-agent-runtime": "^3.750.0",
     "@aws-sdk/client-bedrock-runtime": "^3.750.0",
     "@aws-sdk/lib-dynamodb": "^3.750.0",

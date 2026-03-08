@@ -42,7 +42,11 @@ export const handler = async (event: ActionGroupEvent) => {
 
   try {
     const sessionId = getParam(event.parameters, 'sessionId')
+    const userId = getParam(event.parameters, 'userId')
     const mealPlan = getParam(event.parameters, 'mealPlan')
+
+    // Use USER# key when userId is provided, fall back to SESSION#
+    const pk = userId ? `USER#${userId}` : `SESSION#${sessionId}`
 
     // If a meal plan is provided, store it in DynamoDB
     if (mealPlan) {
@@ -52,7 +56,7 @@ export const handler = async (event: ActionGroupEvent) => {
         new PutCommand({
           TableName: TABLE_NAME,
           Item: {
-            pk: `SESSION#${sessionId}`,
+            pk,
             sk: `MEALPLAN#${weekStart}`,
             mealPlan: JSON.parse(mealPlan),
             weekStart,
@@ -87,7 +91,7 @@ export const handler = async (event: ActionGroupEvent) => {
       new GetCommand({
         TableName: TABLE_NAME,
         Key: {
-          pk: `SESSION#${sessionId}`,
+          pk,
           sk: 'PREFERENCES',
         },
       }),
@@ -113,7 +117,7 @@ export const handler = async (event: ActionGroupEvent) => {
       }
     }
 
-    const { pk, sk, ttl, ...preferences } = result.Item
+    const { pk: _pk, sk, ttl, ...preferences } = result.Item
 
     return {
       messageVersion: '1.0',
