@@ -31,17 +31,12 @@ export const handler = async (event: ActionGroupEvent) => {
 
   try {
     const sessionId = getParam(event.parameters, 'sessionId')
-    const household = getParam(event.parameters, 'household')
-    const dietaryRaw = getParam(event.parameters, 'dietary')
-    const budget = getParam(event.parameters, 'budget')
-    const skill = getParam(event.parameters, 'skill')
-    const time = getParam(event.parameters, 'time')
-    const cuisineRaw = getParam(event.parameters, 'cuisine')
-    const notes = getParam(event.parameters, 'notes')
+    const prefsJson = getParam(event.parameters, 'preferences')
+    const prefs = JSON.parse(prefsJson)
 
     // Convert comma-separated strings to arrays
-    const dietary = dietaryRaw ? dietaryRaw.split(',').map((s) => s.trim()) : []
-    const cuisine = cuisineRaw ? cuisineRaw.split(',').map((s) => s.trim()) : []
+    const dietary = prefs.dietary ? prefs.dietary.split(',').map((s: string) => s.trim()) : []
+    const cuisine = prefs.cuisine ? prefs.cuisine.split(',').map((s: string) => s.trim()) : []
 
     await dynamodb.send(
       new PutCommand({
@@ -49,13 +44,13 @@ export const handler = async (event: ActionGroupEvent) => {
         Item: {
           pk: `SESSION#${sessionId}`,
           sk: 'PREFERENCES',
-          household,
+          household: prefs.household || '',
           dietary,
-          budget,
-          skill,
-          time,
+          budget: prefs.budget || '',
+          skill: prefs.skill || '',
+          time: prefs.time || '',
           cuisine,
-          notes,
+          notes: prefs.notes || '',
           ttl: ttl90Days(),
         },
       }),

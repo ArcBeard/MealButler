@@ -133,16 +133,10 @@ export class BackendStack extends cdk.Stack {
           functionSchema: {
             functions: [{
               name: 'savePreferences',
-              description: 'Saves validated user meal preferences to DynamoDB',
+              description: 'Saves validated user meal preferences to DynamoDB. The preferences parameter is a JSON string with keys: household, dietary (comma-separated), budget, skill, time, cuisine (comma-separated), notes.',
               parameters: {
                 sessionId: { description: 'The current session identifier', type: 'string', required: true },
-                household: { description: 'Number of people in the household', type: 'string', required: true },
-                dietary: { description: 'Comma-separated dietary restrictions', type: 'string', required: false },
-                budget: { description: 'Budget level (budget, moderate, premium)', type: 'string', required: true },
-                skill: { description: 'Cooking skill level (beginner, intermediate, advanced)', type: 'string', required: true },
-                time: { description: 'Available cooking time (15min, 30min, 1hr, unlimited)', type: 'string', required: true },
-                cuisine: { description: 'Comma-separated cuisine preferences', type: 'string', required: false },
-                notes: { description: 'Additional notes or preferences', type: 'string', required: false },
+                preferences: { description: 'JSON string containing all preferences: {"household":"2","dietary":"vegetarian,gluten-free","budget":"moderate","skill":"intermediate","time":"30","cuisine":"italian,mexican","notes":"no shellfish"}', type: 'string', required: true },
               },
             }],
           },
