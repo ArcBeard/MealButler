@@ -1,5 +1,6 @@
 import type { AgentAdapter, AgentResponse, ConversationStep, MealPreferences } from '@/types/agent'
 import { conversationSteps, buildSummaryMessage } from '@/data/agentConversation'
+import { getConfig } from '@/services/config'
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -117,34 +118,58 @@ function createMockAgent(preferences: MealPreferences): AgentAdapter {
   }
 }
 
-// Swap point: change this to return createBedrockAgent() when backend is ready
-export function createAgentAdapter(preferences: MealPreferences): AgentAdapter {
-  return createMockAgent(preferences)
+function createBedrockAgent(preferences: MealPreferences): AgentAdapter {
+  const sessionId = crypto.randomUUID()
+
+  return {
+    async getGreeting(): Promise<AgentResponse> {
+      return this.sendMessage('hello', 'greeting')
+    },
+
+    async sendMessage(message: string, step: ConversationStep): Promise<AgentResponse> {
+      const config = await getConfig()
+      if (!config.apiUrl) {
+        // Fallback to mock when no backend configured
+        return createMockAgent(preferences).sendMessage(message, step)
+      }
+
+      try {
+        const response = await fetch(`${config.apiUrl}/api/agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            inputText: message,
+            step,
+            preferences: step === 'summary' ? preferences : undefined,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`)
+        }
+
+        const data = await response.json()
+        return {
+          content: data.content,
+          quickReplies: data.quickReplies,
+          nextStep: data.nextStep ?? step,
+          multiSelect: data.multiSelect,
+          widget: data.widget,
+        }
+      } catch (error) {
+        console.error('Bedrock agent error:', error)
+        // Graceful fallback: stay on current step with error message
+        return {
+          content: "I'm having trouble connecting right now. Please try again.",
+          nextStep: step,
+        }
+      }
+    },
+  }
 }
 
-// Scaffold for AWS Bedrock AgentCore integration:
-//
-// function createBedrockAgent(): AgentAdapter {
-//   const agentId = import.meta.env.VITE_BEDROCK_AGENT_ID
-//   const agentAliasId = import.meta.env.VITE_BEDROCK_AGENT_ALIAS_ID
-//   const sessionId = crypto.randomUUID()
-//
-//   return {
-//     async getGreeting() {
-//       return this.sendMessage('hello', 'greeting')
-//     },
-//     async sendMessage(message, step) {
-//       const response = await fetch('/api/agent', {
-//         method: 'POST',
-//         headers: { 'Content-Type': 'application/json' },
-//         body: JSON.stringify({ agentId, agentAliasId, sessionId, inputText: message }),
-//       })
-//       const data = await response.json()
-//       return {
-//         content: data.completion,
-//         quickReplies: data.suggestedActions?.map((a: any) => ({ label: a, value: a })),
-//         nextStep: data.nextStep ?? step,
-//       }
-//     },
-//   }
-// }
+// Uses Bedrock agent when config.json provides an apiUrl, falls back to mock
+export function createAgentAdapter(preferences: MealPreferences): AgentAdapter {
+  return createBedrockAgent(preferences)
+}

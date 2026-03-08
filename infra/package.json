@@ -1,0 +1,24 @@
+{
+  "name": "mealapp-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.175.0",
+    "constructs": "^10.4.2",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.750.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.750.0",
+    "@aws-sdk/lib-dynamodb": "^3.750.0",
+    "@aws-sdk/client-dynamodb": "^3.750.0",
+    "source-map-support": "^0.5.21"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "~5.7.0",
+    "aws-cdk": "^2.175.0"
+  }
+}
