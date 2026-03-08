@@ -10,9 +10,8 @@ export class PipelineStack extends cdk.Stack {
     const pipeline = new CodePipeline(this, 'Pipeline', {
       pipelineName: 'MealAppPipeline',
       synth: new ShellStep('Synth', {
-        // TODO: Replace with actual GitHub repo and CodeStar Connection ARN
-        input: CodePipelineSource.connection('OWNER/MealApp', 'main', {
-          connectionArn: 'arn:aws:codeconnections:us-east-1:ACCOUNT:connection/PLACEHOLDER',
+        input: CodePipelineSource.connection('ArcBeard/MealButler', 'main', {
+          connectionArn: 'arn:aws:codeconnections:us-east-1:289137415596:connection/347dc364-653b-4d10-a862-0204aeac1cb9',
         }),
         commands: [
           'npm ci',

@@ -97,6 +97,15 @@ export class BackendStack extends cdk.Stack {
       },
     })
 
+    // Action group Lambda map for permissions
+    const actionGroupLambdas = {
+      'save-preferences': savePreferencesFn,
+      'generate-meal-plan': generateMealPlanFn,
+      'fetch-recipes': fetchRecipesFn,
+      'fetch-grocery-prices': fetchGroceryPricesFn,
+      'verify-ingredients': verifyIngredientsFn,
+    }
+
     const agent = new bedrock.CfnAgent(this, 'MealAppAgent', {
       agentName: 'MealAppJeeves',
       foundationModel: 'anthropic.claude-3-haiku-20240307-v1:0',
@@ -115,79 +124,99 @@ export class BackendStack extends cdk.Stack {
       ].join(' '),
       agentResourceRoleArn: agentRole.roleArn,
       idleSessionTtlInSeconds: 3600,
+      autoPrepare: true,
+      actionGroups: [
+        {
+          actionGroupName: 'save-preferences',
+          description: 'Saves validated user meal preferences to DynamoDB',
+          actionGroupExecutor: { lambda: savePreferencesFn.functionArn },
+          functionSchema: {
+            functions: [{
+              name: 'savePreferences',
+              description: 'Saves validated user meal preferences to DynamoDB',
+              parameters: {
+                sessionId: { description: 'The current session identifier', type: 'string', required: true },
+                household: { description: 'Number of people in the household', type: 'string', required: true },
+                dietary: { description: 'Comma-separated dietary restrictions', type: 'string', required: false },
+                budget: { description: 'Budget level (budget, moderate, premium)', type: 'string', required: true },
+                skill: { description: 'Cooking skill level (beginner, intermediate, advanced)', type: 'string', required: true },
+                time: { description: 'Available cooking time (15min, 30min, 1hr, unlimited)', type: 'string', required: true },
+                cuisine: { description: 'Comma-separated cuisine preferences', type: 'string', required: false },
+                notes: { description: 'Additional notes or preferences', type: 'string', required: false },
+              },
+            }],
+          },
+        },
+        {
+          actionGroupName: 'generate-meal-plan',
+          description: 'Generates a 7-day meal plan based on saved preferences',
+          actionGroupExecutor: { lambda: generateMealPlanFn.functionArn },
+          functionSchema: {
+            functions: [{
+              name: 'generateMealPlan',
+              description: 'Generates a 7-day meal plan based on saved preferences',
+              parameters: {
+                sessionId: { description: 'The current session identifier', type: 'string', required: true },
+              },
+            }],
+          },
+        },
+        {
+          actionGroupName: 'fetch-recipes',
+          description: 'Fetches recipes matching cuisine and dietary preferences',
+          actionGroupExecutor: { lambda: fetchRecipesFn.functionArn },
+          functionSchema: {
+            functions: [{
+              name: 'fetchRecipes',
+              description: 'Fetches recipes matching cuisine and dietary preferences',
+              parameters: {
+                cuisine: { description: 'Cuisine type to search for', type: 'string', required: true },
+                dietary: { description: 'Comma-separated dietary restrictions to filter by', type: 'string', required: false },
+                maxTime: { description: 'Maximum preparation time in minutes', type: 'string', required: false },
+              },
+            }],
+          },
+        },
+        {
+          actionGroupName: 'fetch-grocery-prices',
+          description: 'Fetches estimated grocery prices for ingredients',
+          actionGroupExecutor: { lambda: fetchGroceryPricesFn.functionArn },
+          functionSchema: {
+            functions: [{
+              name: 'fetchGroceryPrices',
+              description: 'Fetches estimated grocery prices for ingredients',
+              parameters: {
+                ingredients: { description: 'Comma-separated list of ingredients to price', type: 'string', required: true },
+                servings: { description: 'Number of servings to calculate for', type: 'string', required: false },
+              },
+            }],
+          },
+        },
+        {
+          actionGroupName: 'verify-ingredients',
+          description: 'Verifies ingredient availability and suggests substitutions',
+          actionGroupExecutor: { lambda: verifyIngredientsFn.functionArn },
+          functionSchema: {
+            functions: [{
+              name: 'verifyIngredients',
+              description: 'Verifies ingredient availability and suggests substitutions',
+              parameters: {
+                ingredients: { description: 'Comma-separated list of ingredients to verify', type: 'string', required: true },
+                dietary: { description: 'Comma-separated dietary restrictions for substitution suggestions', type: 'string', required: false },
+              },
+            }],
+          },
+        },
+      ],
     })
 
-    // Helper to build action group Lambda ARNs and grant invoke
-    const createActionGroup = (
-      actionGroupName: string,
-      description: string,
-      fn: NodejsFunction,
-      parameters: Record<string, {
-        description: string
-        type: string
-        required: boolean
-      }>,
-    ) => {
-      fn.addPermission(`AllowBedrock-${actionGroupName}`, {
+    // Grant Bedrock permission to invoke each action group Lambda
+    for (const [name, fn] of Object.entries(actionGroupLambdas)) {
+      fn.addPermission(`AllowBedrock-${name}`, {
         principal: new iam.ServicePrincipal('bedrock.amazonaws.com'),
         sourceArn: agent.attrAgentArn,
       })
-
-      return new bedrock.CfnAgentActionGroup(this, `${actionGroupName}ActionGroup`, {
-        agentId: agent.attrAgentId,
-        agentVersion: 'DRAFT',
-        actionGroupName,
-        description,
-        actionGroupExecutor: {
-          lambda: fn.functionArn,
-        },
-        functionSchema: {
-          functions: [
-            {
-              name: actionGroupName,
-              description,
-              parameters: Object.fromEntries(
-                Object.entries(parameters).map(([key, val]) => [
-                  key,
-                  { description: val.description, type: val.type, required: val.required },
-                ]),
-              ),
-            },
-          ],
-        },
-      })
     }
-
-    createActionGroup('save-preferences', 'Saves validated user meal preferences to DynamoDB', savePreferencesFn, {
-      sessionId: { description: 'The current session identifier', type: 'string', required: true },
-      household: { description: 'Number of people in the household', type: 'string', required: true },
-      dietary: { description: 'Comma-separated dietary restrictions', type: 'string', required: false },
-      budget: { description: 'Budget level (budget, moderate, premium)', type: 'string', required: true },
-      skill: { description: 'Cooking skill level (beginner, intermediate, advanced)', type: 'string', required: true },
-      time: { description: 'Available cooking time (15min, 30min, 1hr, unlimited)', type: 'string', required: true },
-      cuisine: { description: 'Comma-separated cuisine preferences', type: 'string', required: false },
-      notes: { description: 'Additional notes or preferences', type: 'string', required: false },
-    })
-
-    createActionGroup('generate-meal-plan', 'Generates a 7-day meal plan based on saved preferences', generateMealPlanFn, {
-      sessionId: { description: 'The current session identifier', type: 'string', required: true },
-    })
-
-    createActionGroup('fetch-recipes', 'Fetches recipes matching cuisine and dietary preferences', fetchRecipesFn, {
-      cuisine: { description: 'Cuisine type to search for', type: 'string', required: true },
-      dietary: { description: 'Comma-separated dietary restrictions to filter by', type: 'string', required: false },
-      maxTime: { description: 'Maximum preparation time in minutes', type: 'string', required: false },
-    })
-
-    createActionGroup('fetch-grocery-prices', 'Fetches estimated grocery prices for ingredients', fetchGroceryPricesFn, {
-      ingredients: { description: 'Comma-separated list of ingredients to price', type: 'string', required: true },
-      servings: { description: 'Number of servings to calculate for', type: 'string', required: false },
-    })
-
-    createActionGroup('verify-ingredients', 'Verifies ingredient availability and suggests substitutions', verifyIngredientsFn, {
-      ingredients: { description: 'Comma-separated list of ingredients to verify', type: 'string', required: true },
-      dietary: { description: 'Comma-separated dietary restrictions for substitution suggestions', type: 'string', required: false },
-    })
 
     // Agent alias
     const agentAlias = new bedrock.CfnAgentAlias(this, 'MealAppAgentAlias', {
