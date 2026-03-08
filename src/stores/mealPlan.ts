@@ -19,30 +19,40 @@ function getCurrentWeekMonday(): string {
   return `${y}-${m}-${dd}`
 }
 
+/** DJB2 hash of a string, returned as base-36 */
+function hashString(str: string): string {
+  let h = 5381
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) & 0xffffffff
+  }
+  return (h >>> 0).toString(36)
+}
+
 export const useMealPlanStore = defineStore('mealPlan', () => {
   const weekPlans = ref<Record<string, DayPlan[]>>({})
+  const planHashes = ref<Record<string, string>>({})
   const isLoading = ref(false)
   const isGenerating = ref(false)
   const error = ref<string | null>(null)
   const hasCurrentWeekPlan = ref(false)
 
-  /** Fetch a week's meal plan. Returns the status so callers know what happened. */
+  /** Fetch a week's meal plan. Always validates cache against the server. */
   async function fetchWeekPlan(weekStart: string): Promise<{ status: PlanStatus; plan: DayPlan[] | null }> {
-    // Return cached data if available
-    if (weekPlans.value[weekStart]) {
+    const config = await getConfig()
+    if (!config.apiUrl) {
+      // Local dev: use mock data (no server to validate against)
+      if (!weekPlans.value[weekStart]) {
+        const monday = new Date(weekStart + 'T00:00:00')
+        const mockPlan = generateMockWeek(monday)
+        weekPlans.value[weekStart] = mockPlan
+        planHashes.value[weekStart] = hashString(JSON.stringify(mockPlan))
+      }
       return { status: 'ready', plan: weekPlans.value[weekStart]! }
     }
 
-    const config = await getConfig()
-    if (!config.apiUrl) {
-      // Local dev: use mock data
-      const monday = new Date(weekStart + 'T00:00:00')
-      const mockPlan = generateMockWeek(monday)
-      weekPlans.value[weekStart] = mockPlan
-      return { status: 'ready', plan: mockPlan }
-    }
-
-    isLoading.value = true
+    const cached = weekPlans.value[weekStart]
+    // Only show loading spinner when we have nothing cached
+    if (!cached) isLoading.value = true
     error.value = null
 
     try {
@@ -55,6 +65,9 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
       const response = await fetch(`${config.apiUrl}/api/meal-plan?${params}`, { headers })
 
       if (response.status === 404) {
+        // Plan was deleted or never existed — clear stale cache
+        delete weekPlans.value[weekStart]
+        delete planHashes.value[weekStart]
         return { status: 'not_found', plan: null }
       }
 
@@ -66,11 +79,21 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
         return { status: 'generating', plan: null }
       }
 
+      // Compare hash to detect changes
+      const newHash = hashString(JSON.stringify(data.mealPlan))
+      if (cached && planHashes.value[weekStart] === newHash) {
+        return { status: 'ready', plan: cached }
+      }
+
+      // Plan is new or changed — update cache
       weekPlans.value[weekStart] = data.mealPlan
+      planHashes.value[weekStart] = newHash
       return { status: 'ready', plan: data.mealPlan }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch meal plan'
       console.error('Failed to fetch meal plan:', err)
+      // Return stale cache if available, otherwise not_found
+      if (cached) return { status: 'ready', plan: cached }
       return { status: 'not_found', plan: null }
     } finally {
       isLoading.value = false
@@ -88,19 +111,15 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
 
     try {
       while (Date.now() - startTime < timeoutMs) {
-        // Clear cache to get a fresh fetch
-        delete weekPlans.value[weekStart]
         const { status, plan } = await fetchWeekPlan(weekStart)
         if (status === 'ready' && plan) {
           isGenerating.value = false
           return plan
         }
         if (status === 'not_found') {
-          // No record at all — stop polling
           isGenerating.value = false
           return null
         }
-        // status === 'generating' — keep polling
         await new Promise((r) => setTimeout(r, intervalMs))
       }
       isGenerating.value = false
@@ -119,6 +138,7 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
 
   function clearCache() {
     weekPlans.value = {}
+    planHashes.value = {}
   }
 
   return {
