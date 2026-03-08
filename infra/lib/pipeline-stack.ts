@@ -10,7 +10,7 @@ export class PipelineStack extends cdk.Stack {
     const pipeline = new CodePipeline(this, 'Pipeline', {
       pipelineName: 'MealAppPipeline',
       synth: new ShellStep('Synth', {
-        input: CodePipelineSource.connection('ArcBeard/MealButler', 'main', {
+        input: CodePipelineSource.connection('ArcBeard/MealButler', 'develop', {
           connectionArn: 'arn:aws:codeconnections:us-east-1:289137415596:connection/347dc364-653b-4d10-a862-0204aeac1cb9',
         }),
         installCommands: [
