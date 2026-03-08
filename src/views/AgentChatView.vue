@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { useAgentChat } from '@/composables/useAgentChat'
+import { storeToRefs } from 'pinia'
+import { useAgentChatStore } from '@/stores/agentChat'
 import ChatProgressBar from '@/components/chat/ChatProgressBar.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 
+const store = useAgentChatStore()
 const {
   messages,
   isAgentTyping,
@@ -12,9 +14,8 @@ const {
   isMultiSelect,
   progress,
   progressLabel,
-  startConversation,
-  sendMessage,
-} = useAgentChat()
+} = storeToRefs(store)
+const { startConversation, sendMessage } = store
 
 onMounted(() => {
   startConversation()

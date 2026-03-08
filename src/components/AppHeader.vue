@@ -10,11 +10,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useColorMode } from '@/composables/useColorMode'
-import { useNavigation } from '@/composables/useNavigation'
+import { storeToRefs } from 'pinia'
+import { useColorModeStore } from '@/stores/colorMode'
+import { useNavigationStore } from '@/stores/navigation'
 
-const { mode } = useColorMode()
-const { toggleNav } = useNavigation()
+const { mode } = storeToRefs(useColorModeStore())
+const { toggleNav } = useNavigationStore()
 </script>
 
 <template>

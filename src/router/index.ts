@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAgentChat } from '@/composables/useAgentChat'
+import { useAgentChatStore } from '@/stores/agentChat'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -34,8 +34,8 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   if (to.path !== '/') {
-    const { isComplete } = useAgentChat()
-    if (!isComplete.value) {
+    const { isComplete } = useAgentChatStore()
+    if (!isComplete) {
       return '/'
     }
   }

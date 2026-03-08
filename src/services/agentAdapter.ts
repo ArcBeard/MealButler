@@ -9,17 +9,7 @@ function randomDelay(): number {
   return 800 + Math.random() * 700
 }
 
-function createMockAgent(): AgentAdapter {
-  const preferences: MealPreferences = {
-    household: '',
-    dietary: [],
-    budget: '',
-    skill: '',
-    time: '',
-    cuisine: [],
-    notes: '',
-  }
-
+function createMockAgent(preferences: MealPreferences): AgentAdapter {
   function storePreference(step: ConversationStep, message: string) {
     switch (step) {
       case 'household':
@@ -128,8 +118,8 @@ function createMockAgent(): AgentAdapter {
 }
 
 // Swap point: change this to return createBedrockAgent() when backend is ready
-export function createAgentAdapter(): AgentAdapter {
-  return createMockAgent()
+export function createAgentAdapter(preferences: MealPreferences): AgentAdapter {
+  return createMockAgent(preferences)
 }
 
 // Scaffold for AWS Bedrock AgentCore integration:

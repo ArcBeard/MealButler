@@ -10,10 +10,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { useNavigation } from '@/composables/useNavigation'
+import { storeToRefs } from 'pinia'
+import { useNavigationStore } from '@/stores/navigation'
 import type { Component } from 'vue'
 
-const { navOpen } = useNavigation()
+const { navOpen } = storeToRefs(useNavigationStore())
 
 const router = useRouter()
 
