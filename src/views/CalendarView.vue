@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2 } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2, Heart, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { mealTypeConfig } from '@/types/meals'
-import type { MealType, DayPlan } from '@/types/meals'
+import type { MealType, Meal, DayPlan } from '@/types/meals'
 import { useMealPlanStore } from '@/stores/mealPlan'
+import { useFavoritesStore } from '@/stores/favorites'
+import { usePreferencesStore } from '@/stores/preferences'
 import { storeToRefs } from 'pinia'
 import type { Component } from 'vue'
 
@@ -16,11 +17,15 @@ const router = useRouter()
 const iconMap: Record<string, Component> = { Sunrise, Sun, Sunset, Cookie }
 
 const mealPlanStore = useMealPlanStore()
-const { isLoading, isGenerating, error } = storeToRefs(mealPlanStore)
+const favoritesStore = useFavoritesStore()
+const preferencesStore = usePreferencesStore()
+const { isGenerating } = storeToRefs(mealPlanStore)
 
 const today = new Date()
 const weekOffset = ref(0)
 const selectedDayIndex = ref(today.getDay() === 0 ? 6 : today.getDay() - 1)
+const isLoading = ref(false)
+const error = ref<string | null>(null)
 
 const currentMonday = computed(() => {
   const d = new Date(today)
@@ -77,20 +82,30 @@ const selectedDayLabel = computed(() =>
 const weekPlan = ref<DayPlan[] | null>(null)
 
 async function loadWeekPlan() {
+  isLoading.value = true
+  error.value = null
   const { status, plan } = await mealPlanStore.fetchWeekPlan(mondayISO.value)
   if (status === 'ready' && plan) {
     weekPlan.value = plan
   } else if (status === 'generating') {
-    // Plan is being generated — poll until ready
     weekPlan.value = null
     const polled = await mealPlanStore.pollForPlan(mondayISO.value)
     weekPlan.value = polled
   } else {
     weekPlan.value = null
   }
+  isLoading.value = false
 }
 
-// Load plan on mount and when week changes
+async function regeneratePlan() {
+  weekPlan.value = null
+  mealPlanStore.clearCache()
+  if (preferencesStore.preferences) {
+    await preferencesStore.savePreferences(preferencesStore.preferences)
+  }
+  await loadWeekPlan()
+}
+
 watch(mondayISO, () => {
   weekPlan.value = null
   loadWeekPlan()
@@ -108,18 +123,35 @@ const dayCalories = computed(() => {
 
 const mealTypes: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
-function prevWeek() {
-  weekOffset.value--
-}
-
-function nextWeek() {
-  weekOffset.value++
-}
-
+function prevWeek() { weekOffset.value-- }
+function nextWeek() { weekOffset.value++ }
 function goToToday() {
   weekOffset.value = 0
   selectedDayIndex.value = today.getDay() === 0 ? 6 : today.getDay() - 1
 }
+
+function navigateToRecipe(type: MealType) {
+  router.push(`/recipe/${mondayISO.value}/${selectedDayIndex.value}/${type}`)
+}
+
+function toggleFavorite(meal: Meal, event: Event) {
+  event.stopPropagation()
+  if (meal.recipe) {
+    favoritesStore.toggleFavorite(meal.recipe)
+  }
+}
+
+function handleRegenerate(event: Event) {
+  event.stopPropagation()
+  regeneratePlan()
+}
+
+onMounted(() => {
+  favoritesStore.fetchFavorites()
+  if (!preferencesStore.preferences) {
+    preferencesStore.fetchPreferences()
+  }
+})
 </script>
 
 <template>
@@ -196,7 +228,12 @@ function goToToday() {
             {{ dayCalories }} cal planned
           </p>
         </div>
-        <Button v-if="weekOffset !== 0 || selectedDayIndex !== (today.getDay() === 0 ? 6 : today.getDay() - 1)" variant="outline" size="sm" @click="goToToday">
+        <Button
+          v-if="weekOffset !== 0 || selectedDayIndex !== (today.getDay() === 0 ? 6 : today.getDay() - 1)"
+          variant="outline"
+          size="sm"
+          @click="goToToday"
+        >
           Today
         </Button>
       </div>
@@ -204,7 +241,7 @@ function goToToday() {
       <Separator class="mb-4" />
 
       <!-- Meal Sections -->
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-4">
         <div v-for="type in mealTypes" :key="type">
           <!-- Meal Type Header -->
           <div class="mb-2 flex items-center gap-2">
@@ -214,43 +251,86 @@ function goToToday() {
           </div>
 
           <!-- Filled Meal Card -->
-          <Card
+          <div
             v-if="dayPlan?.meals[type]"
-            class="transition-shadow hover:shadow-md"
-            :class="dayPlan.meals[type]!.recipe ? 'cursor-pointer' : ''"
-            @click="dayPlan.meals[type]!.recipe && router.push(`/recipe/${mondayISO}/${selectedDayIndex}/${type}`)"
+            class="relative h-40 overflow-hidden rounded-xl cursor-pointer select-none"
+            @click="dayPlan.meals[type]!.recipe ? navigateToRecipe(type) : undefined"
           >
-            <CardContent class="flex items-center gap-3 p-3">
-              <div class="flex items-center gap-2">
-                <span class="text-2xl">{{ dayPlan.meals[type]!.emoji }}</span>
-                <img
-                  v-if="dayPlan.meals[type]!.recipe?.imageUrl"
-                  :src="dayPlan.meals[type]!.recipe!.imageUrl"
-                  :alt="dayPlan.meals[type]!.name"
-                  class="size-6 rounded object-cover"
+            <!-- Background: recipe image or emoji gradient -->
+            <img
+              v-if="dayPlan.meals[type]!.recipe?.imageUrl"
+              :src="dayPlan.meals[type]!.recipe!.imageUrl"
+              :alt="dayPlan.meals[type]!.name"
+              class="absolute inset-0 h-full w-full object-cover"
+            />
+            <div
+              v-else
+              class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/30 via-primary/15 to-secondary/20"
+            >
+              <span class="text-6xl opacity-60">{{ dayPlan.meals[type]!.emoji }}</span>
+            </div>
+
+            <!-- Gradient overlay -->
+            <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+
+            <!-- Action buttons — top right -->
+            <div class="absolute right-2.5 top-2.5 flex gap-1.5">
+              <!-- Favorite -->
+              <button
+                v-if="dayPlan.meals[type]!.recipe"
+                class="flex items-center justify-center rounded-full bg-black/40 p-1.5 backdrop-blur-sm transition-transform active:scale-90"
+                @click="toggleFavorite(dayPlan.meals[type]!, $event)"
+              >
+                <Heart
+                  class="size-4"
+                  :class="favoritesStore.isFavorite(dayPlan.meals[type]!.recipe!.spoonacularId)
+                    ? 'fill-red-500 text-red-500'
+                    : 'text-white'"
                 />
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="font-medium truncate">{{ dayPlan.meals[type]!.name }}</p>
-                <div class="flex items-center gap-3 text-xs text-muted-foreground">
+              </button>
+              <!-- Regenerate -->
+              <button
+                class="flex items-center justify-center rounded-full bg-black/40 p-1.5 backdrop-blur-sm transition-transform active:scale-90"
+                @click="handleRegenerate($event)"
+              >
+                <RefreshCw
+                  class="size-4 text-white"
+                  :class="isGenerating ? 'animate-spin' : ''"
+                />
+              </button>
+            </div>
+
+            <!-- Emoji badge (when image is present) -->
+            <div
+              v-if="dayPlan.meals[type]!.recipe?.imageUrl"
+              class="absolute left-2.5 top-2.5 text-xl leading-none"
+            >
+              {{ dayPlan.meals[type]!.emoji }}
+            </div>
+
+            <!-- Content — bottom -->
+            <div class="absolute inset-x-0 bottom-0 flex items-end justify-between p-3">
+              <div class="min-w-0">
+                <p class="truncate font-semibold text-white">{{ dayPlan.meals[type]!.name }}</p>
+                <div class="mt-0.5 flex items-center gap-3 text-xs text-white/75">
                   <span class="flex items-center gap-1">
-                    <Clock class="h-3 w-3" />
+                    <Clock class="size-3" />
                     {{ dayPlan.meals[type]!.prepMinutes }} min
                   </span>
                   <span class="flex items-center gap-1">
-                    <Flame class="h-3 w-3" />
+                    <Flame class="size-3" />
                     {{ dayPlan.meals[type]!.calories }} cal
                   </span>
                 </div>
               </div>
-              <ChevronRight v-if="dayPlan.meals[type]!.recipe" class="size-4 shrink-0 text-muted-foreground" />
-            </CardContent>
-          </Card>
+              <ChevronRight v-if="dayPlan.meals[type]!.recipe" class="size-4 shrink-0 text-white/60" />
+            </div>
+          </div>
 
           <!-- Empty Meal Slot -->
           <button
             v-else
-            class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+            class="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/25 p-6 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
           >
             <Plus class="h-4 w-4" />
             Add {{ mealTypeConfig[type].label.toLowerCase() }}
