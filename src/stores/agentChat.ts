@@ -83,7 +83,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
       const prefStore = usePreferencesStore()
       if (!prefStore.preferences) await prefStore.fetchPreferences()
 
-      if (prefStore.preferences) {
+      if (prefStore.preferences && prefStore.preferences.household) {
         // Pre-fill preferences from saved profile
         preferences.value = { ...prefStore.preferences }
         adapter = createAgentAdapter(preferences.value)
@@ -141,8 +141,38 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     await sendMessage('confirm')
   }
 
+  /** Populate local preferences from user's answer at each step */
+  function storePreference(step: ConversationStep, message: string) {
+    switch (step) {
+      case 'household':
+        preferences.value.household = message
+        break
+      case 'dietary':
+        preferences.value.dietary = message.split(', ')
+        break
+      case 'budget':
+        preferences.value.budget = message
+        break
+      case 'skill':
+        preferences.value.skill = message
+        break
+      case 'time':
+        preferences.value.time = message
+        break
+      case 'cuisine':
+        preferences.value.cuisine = message.split(', ')
+        break
+      case 'additional':
+        preferences.value.notes = message
+        break
+    }
+  }
+
   async function sendMessage(content: string) {
     if (isAgentTyping.value || isComplete.value) return
+
+    // Capture user answer into preferences before forwarding to adapter
+    storePreference(currentStep.value, content)
 
     clearLastQuickReplies()
     messages.value.push(createMessage('user', content))
