@@ -1,14 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAgentChatStore } from '@/stores/agentChat'
 import { useAuthStore } from '@/stores/auth'
 import { useMealPlanStore } from '@/stores/mealPlan'
+import { usePreferencesStore } from '@/stores/preferences'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      name: 'agent',
+      name: 'onboarding',
       component: () => import('@/views/AgentChatView.vue'),
     },
     {
@@ -40,16 +40,16 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const { hasCurrentWeekPlan } = useMealPlanStore()
-  const { isComplete } = useAgentChatStore()
+  const prefStore = usePreferencesStore()
 
-  // Authenticated user with an existing meal plan: skip chat, go to calendar
+  // Returning user with plan → calendar
   if (to.path === '/' && hasCurrentWeekPlan) {
     return '/calendar'
   }
 
-  // Allow access to protected routes if chat is complete OR a meal plan exists
+  // Protect routes: need either a plan or saved preferences
   if (to.path !== '/') {
-    if (!isComplete && !hasCurrentWeekPlan) {
+    if (!hasCurrentWeekPlan && !prefStore.preferences) {
       return '/'
     }
   }

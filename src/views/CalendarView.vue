@@ -11,6 +11,7 @@ import { useFavoritesStore } from '@/stores/favorites'
 import { usePreferencesStore } from '@/stores/preferences'
 import { storeToRefs } from 'pinia'
 import type { Component } from 'vue'
+import AppWalkthrough from '@/components/walkthrough/AppWalkthrough.vue'
 
 const router = useRouter()
 
@@ -146,6 +147,14 @@ function handleRegenerate(event: Event) {
   regeneratePlan()
 }
 
+const WALKTHROUGH_KEY = 'mealapp_show_walkthrough'
+const showWalkthrough = ref(!!localStorage.getItem(WALKTHROUGH_KEY))
+
+function dismissWalkthrough() {
+  localStorage.removeItem(WALKTHROUGH_KEY)
+  showWalkthrough.value = false
+}
+
 onMounted(() => {
   favoritesStore.fetchFavorites()
   if (!preferencesStore.preferences) {
@@ -156,6 +165,7 @@ onMounted(() => {
 
 <template>
   <div class="mx-auto max-w-2xl">
+    <AppWalkthrough v-if="showWalkthrough" @complete="dismissWalkthrough" />
     <!-- Week Navigator -->
     <div class="mb-4 flex items-center justify-between">
       <Button variant="ghost" size="icon" @click="prevWeek">
