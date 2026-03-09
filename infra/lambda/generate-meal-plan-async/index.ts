@@ -110,17 +110,7 @@ const SITE_REGISTRY: Record<string, RecipeSite> = {
   'budget bytes': {
     domain: 'budgetbytes.com',
     searchUrl: (q) => `https://www.budgetbytes.com/?s=${encodeURIComponent(q)}`,
-    recipePattern: /https?:\/\/www\.budgetbytes\.com\/[\w-]+\/?/,
-  },
-  'serious eats': {
-    domain: 'seriouseats.com',
-    searchUrl: (q) => `https://www.seriouseats.com/search?q=${encodeURIComponent(q)}`,
-    recipePattern: /https?:\/\/www\.seriouseats\.com\/[\w-]+-recipe-?\d*/,
-  },
-  'simply recipes': {
-    domain: 'simplyrecipes.com',
-    searchUrl: (q) => `https://www.simplyrecipes.com/search?q=${encodeURIComponent(q)}`,
-    recipePattern: /https?:\/\/www\.simplyrecipes\.com\/recipes\/[\w-]+\/?/,
+    recipePattern: /https?:\/\/www\.budgetbytes\.com\/[\w][\w-]*[\w]\/?/,
   },
   'taste of home': {
     domain: 'tasteofhome.com',
@@ -129,7 +119,7 @@ const SITE_REGISTRY: Record<string, RecipeSite> = {
   },
 }
 
-const DEFAULT_SITES = ['allrecipes', 'budget bytes', 'simply recipes']
+const DEFAULT_SITES = ['allrecipes', 'budget bytes', 'taste of home']
 
 const DEFAULT_SCRAPE_TYPES = ['dinner']
 const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack'])
@@ -145,9 +135,13 @@ function resolveScrapeTypes(scrapeMealTypes?: unknown): Set<string> {
 }
 
 const FETCH_TIMEOUT_MS = 5_000
-const FETCH_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; MealAppBot/1.0)',
-  'Accept': 'text/html',
+const FETCH_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
 }
 
 function resolveSites(preferredSites?: unknown): RecipeSite[] {
@@ -184,25 +178,31 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<string>
   }
 }
 
+function isRecipeType(type: unknown): boolean {
+  if (type === 'Recipe') return true
+  if (Array.isArray(type)) return type.includes('Recipe')
+  return false
+}
+
 function extractJsonLdRecipe(html: string): Record<string, unknown> | null {
   const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
   let match: RegExpExecArray | null
   while ((match = scriptPattern.exec(html)) !== null) {
     try {
       const data = JSON.parse(match[1]!)
-      // Direct Recipe
-      if (data['@type'] === 'Recipe') return data
+      // Direct Recipe (string or array @type)
+      if (isRecipeType(data['@type'])) return data
       // @graph array
       if (Array.isArray(data['@graph'])) {
         const recipe = data['@graph'].find(
-          (item: Record<string, unknown>) => item['@type'] === 'Recipe',
+          (item: Record<string, unknown>) => isRecipeType(item['@type']),
         )
         if (recipe) return recipe
       }
       // Array of objects
       if (Array.isArray(data)) {
         const recipe = data.find(
-          (item: Record<string, unknown>) => item['@type'] === 'Recipe',
+          (item: Record<string, unknown>) => isRecipeType(item['@type']),
         )
         if (recipe) return recipe
       }
@@ -478,12 +478,12 @@ Rules:
 - No markdown, no explanation — only the JSON object.`
 }
 
-async function callBedrock(prompt: string): Promise<string> {
+async function callBedrock(prompt: string, maxTokens = 4096): Promise<string> {
   const response = await bedrock.send(
     new ConverseCommand({
       modelId: MODEL_ID,
       messages: [{ role: 'user', content: [{ text: prompt }] }],
-      inferenceConfig: { maxTokens: 4096, temperature: 0.7 },
+      inferenceConfig: { maxTokens, temperature: 0.7 },
     }),
   )
   return response.output?.message?.content?.[0]?.text ?? ''
@@ -594,7 +594,7 @@ export const handler = async (event: GenerateEvent): Promise<void> => {
 
           try {
             const prompt = buildRecipePrompt(partialDay, dayName, preferences)
-            const text = await callBedrock(prompt)
+            const text = await callBedrock(prompt, 8192)
             const match = text.match(/\{[\s\S]*\}/)
             if (!match) {
               console.warn(`No JSON in Claude response for ${dayName}`)
