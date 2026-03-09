@@ -20,6 +20,7 @@ export interface MealPreferences {
   time: string
   cuisine: string[]
   notes: string
+  preferredSites?: string[]
 }
 
 export type ConversationStep =

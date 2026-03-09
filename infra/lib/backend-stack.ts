@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as bedrock from 'aws-cdk-lib/aws-bedrock'
 import * as apigateway from 'aws-cdk-lib/aws-apigateway'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
+import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as path from 'path'
 
 interface BackendStackProps extends cdk.StackProps {
@@ -251,15 +252,23 @@ export class BackendStack extends cdk.Stack {
       agentAliasName: 'production',
     })
 
+    // ─── SSM Parameter for Spoonacular API Key ─────────────────────
+    const spoonacularApiKeyParam = ssm.StringParameter.fromStringParameterName(
+      this,
+      'SpoonacularApiKey',
+      '/mealapp/spoonacular-api-key',
+    )
+
     // ─── Async Meal Plan Generation Lambda ──────────────────────────
     const generateMealPlanAsyncFn = new NodejsFunction(this, 'GenerateMealPlanAsyncFn', {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../lambda/generate-meal-plan-async/index.ts'),
       functionName: 'MealApp-GenerateMealPlanAsync',
-      timeout: cdk.Duration.seconds(120),
+      timeout: cdk.Duration.seconds(180),
       environment: {
         TABLE_NAME: table.tableName,
         MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+        SPOONACULAR_API_KEY_PARAM: '/mealapp/spoonacular-api-key',
       },
       bundling: {
         minify: true,
@@ -268,6 +277,7 @@ export class BackendStack extends cdk.Stack {
     })
 
     table.grantReadWriteData(generateMealPlanAsyncFn)
+    spoonacularApiKeyParam.grantRead(generateMealPlanAsyncFn)
 
     generateMealPlanAsyncFn.addToRolePolicy(
       new iam.PolicyStatement({
@@ -339,6 +349,23 @@ export class BackendStack extends cdk.Stack {
     })
 
     table.grantReadData(getMealPlanFn)
+
+    // ─── Favorites Lambda ───────────────────────────────────────────
+    const favoritesFn = new NodejsFunction(this, 'FavoritesFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/favorites/index.ts'),
+      functionName: 'MealApp-Favorites',
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadWriteData(favoritesFn)
 
     // ─── Invoke Agent Lambda ─────────────────────────────────────────
     const invokeAgentFn = new NodejsFunction(this, 'InvokeAgentFn', {
@@ -440,6 +467,41 @@ export class BackendStack extends cdk.Stack {
     preferencesResource.addMethod(
       'PUT',
       new apigateway.LambdaIntegration(updatePreferencesFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+
+    // GET/POST /api/favorites, DELETE /api/favorites/{recipeId}
+    const favoritesResource = apiResource.addResource('favorites')
+    favoritesResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(favoritesFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+    favoritesResource.addMethod(
+      'POST',
+      new apigateway.LambdaIntegration(favoritesFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+
+    const favoriteByIdResource = favoritesResource.addResource('{recipeId}')
+    favoriteByIdResource.addMethod(
+      'DELETE',
+      new apigateway.LambdaIntegration(favoritesFn),
       authorizer
         ? {
             authorizer,

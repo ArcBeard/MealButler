@@ -20,6 +20,18 @@ const skill = ref('')
 const time = ref('')
 const cuisine = ref<string[]>([])
 const notes = ref('')
+const preferredSites = ref<string[]>([])
+
+const siteOptions = [
+  'AllRecipes',
+  'Budget Bytes',
+  'Serious Eats',
+  'Simply Recipes',
+  'Cookie and Kate',
+  'Minimalist Baker',
+  'Half Baked Harvest',
+  'Smitten Kitchen',
+]
 
 const saveSuccess = ref(false)
 
@@ -54,6 +66,7 @@ function populateForm(prefs: MealPreferences) {
   time.value = prefs.time
   cuisine.value = [...prefs.cuisine]
   notes.value = prefs.notes
+  preferredSites.value = [...(prefs.preferredSites ?? [])]
 }
 
 // Build current form state as MealPreferences
@@ -65,6 +78,7 @@ const currentPrefs = computed<MealPreferences>(() => ({
   time: time.value,
   cuisine: cuisine.value,
   notes: notes.value,
+  preferredSites: preferredSites.value,
 }))
 
 const hasChanges = computed(() => {
@@ -84,6 +98,15 @@ function toggleDietary(value: string) {
     const noneIdx = dietary.value.indexOf('none')
     if (noneIdx >= 0) dietary.value.splice(noneIdx, 1)
     dietary.value.push(value)
+  }
+}
+
+function toggleSite(value: string) {
+  const idx = preferredSites.value.indexOf(value)
+  if (idx >= 0) {
+    preferredSites.value.splice(idx, 1)
+  } else {
+    preferredSites.value.push(value)
   }
 }
 
@@ -305,6 +328,27 @@ onMounted(() => {
               @click="toggleCuisine(option.value)"
             >
               {{ option.label }}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <!-- Preferred Recipe Sites -->
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-base">Preferred Recipe Sites</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="site in siteOptions"
+              :key="site"
+              :variant="preferredSites.includes(site) ? 'default' : 'outline'"
+              size="sm"
+              class="rounded-full"
+              @click="toggleSite(site)"
+            >
+              {{ site }}
             </Button>
           </div>
         </CardContent>

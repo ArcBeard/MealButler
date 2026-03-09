@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,6 +10,8 @@ import type { MealType, DayPlan } from '@/types/meals'
 import { useMealPlanStore } from '@/stores/mealPlan'
 import { storeToRefs } from 'pinia'
 import type { Component } from 'vue'
+
+const router = useRouter()
 
 const iconMap: Record<string, Component> = { Sunrise, Sun, Sunset, Cookie }
 
@@ -211,9 +214,22 @@ function goToToday() {
           </div>
 
           <!-- Filled Meal Card -->
-          <Card v-if="dayPlan?.meals[type]" class="transition-shadow hover:shadow-md">
+          <Card
+            v-if="dayPlan?.meals[type]"
+            class="transition-shadow hover:shadow-md"
+            :class="dayPlan.meals[type]!.recipe ? 'cursor-pointer' : ''"
+            @click="dayPlan.meals[type]!.recipe && router.push(`/recipe/${mondayISO}/${selectedDayIndex}/${type}`)"
+          >
             <CardContent class="flex items-center gap-3 p-3">
-              <span class="text-2xl">{{ dayPlan.meals[type]!.emoji }}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-2xl">{{ dayPlan.meals[type]!.emoji }}</span>
+                <img
+                  v-if="dayPlan.meals[type]!.recipe?.imageUrl"
+                  :src="dayPlan.meals[type]!.recipe!.imageUrl"
+                  :alt="dayPlan.meals[type]!.name"
+                  class="size-6 rounded object-cover"
+                />
+              </div>
               <div class="flex-1 min-w-0">
                 <p class="font-medium truncate">{{ dayPlan.meals[type]!.name }}</p>
                 <div class="flex items-center gap-3 text-xs text-muted-foreground">
@@ -227,6 +243,7 @@ function goToToday() {
                   </span>
                 </div>
               </div>
+              <ChevronRight v-if="dayPlan.meals[type]!.recipe" class="size-4 shrink-0 text-muted-foreground" />
             </CardContent>
           </Card>
 

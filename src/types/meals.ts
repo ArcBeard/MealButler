@@ -1,11 +1,41 @@
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
+export interface Ingredient {
+  id: number
+  name: string
+  amount: number
+  unit: string
+  original: string
+}
+
+export interface RecipeStep {
+  number: number
+  step: string
+}
+
+export interface Recipe {
+  spoonacularId: number
+  title: string
+  imageUrl?: string
+  sourceUrl?: string
+  sourceName?: string
+  servings: number
+  readyInMinutes: number
+  prepMinutes?: number
+  cookMinutes?: number
+  ingredients: Ingredient[]
+  steps: RecipeStep[]
+  cuisines: string[]
+  diets: string[]
+}
+
 export interface Meal {
   id: string
   name: string
   prepMinutes: number
   calories: number
   emoji: string
+  recipe?: Recipe
 }
 
 export interface DayPlan {

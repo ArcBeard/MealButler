@@ -20,13 +20,13 @@ const router = createRouter({
     {
       path: '/recipes',
       name: 'recipes',
-      component: () => import('@/views/RecipeView.vue'),
+      component: () => import('@/views/RecipeListView.vue'),
       meta: { requiresAuth: true },
     },
     {
-      path: '/recipe-list',
-      name: 'recipe-list',
-      component: () => import('@/views/RecipeListView.vue'),
+      path: '/recipe/:weekStart/:dayIndex/:mealType',
+      name: 'recipe-detail',
+      component: () => import('@/views/RecipeView.vue'),
       meta: { requiresAuth: true },
     },
     {
