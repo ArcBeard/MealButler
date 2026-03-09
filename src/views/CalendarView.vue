@@ -118,7 +118,10 @@ async function regeneratePlan() {
   if (preferencesStore.preferences) {
     await preferencesStore.savePreferences(preferencesStore.preferences)
   }
-  await loadWeekPlan()
+  // Go straight to polling — the save already wrote status:"generating" in DynamoDB,
+  // but a normal fetch might read stale "ready" data due to eventual consistency.
+  const polled = await mealPlanStore.pollForPlan(mondayISO.value)
+  weekPlan.value = polled
 }
 
 function confirmResetMenu() {
