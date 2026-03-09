@@ -278,6 +278,13 @@ export class BackendStack extends cdk.Stack {
 
     generateMealPlanAsyncFn.addToRolePolicy(
       new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [`${table.tableArn}/index/*`],
+      }),
+    )
+
+    generateMealPlanAsyncFn.addToRolePolicy(
+      new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel*'],
         resources: [inferenceProfileArn],
       }),
