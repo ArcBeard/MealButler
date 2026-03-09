@@ -29,19 +29,11 @@ export class BackendStack extends cdk.Stack {
     })
 
     // ─── Recipe DB GSIs ──────────────────────────────────────────────
-    table.addGlobalSecondaryIndex({
-      indexName: 'gsi1-cuisine-mealtype',
-      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.ALL,
-    })
-
-    table.addGlobalSecondaryIndex({
-      indexName: 'gsi2-diet-cuisine',
-      partitionKey: { name: 'gsi2pk', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'gsi2sk', type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.ALL,
-    })
+    // GSIs managed via scripts/scraper/setup_recipe_db.sh (CLI create)
+    // DynamoDB only allows 1 GSI creation per CloudFormation update,
+    // so we create them outside CDK and import the drift.
+    //   gsi1-cuisine-mealtype: gsi1pk (CUISINE#X) / gsi1sk (MEALTYPE#X#0030)
+    //   gsi2-diet-cuisine:     gsi2pk (DIET#X)    / gsi2sk (CUISINE#X#dinner)
 
     // ─── Action Group Lambdas ────────────────────────────────────────
     const lambdaDefaults: Partial<ConstructorParameters<typeof NodejsFunction>[2]> = {

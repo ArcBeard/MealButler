@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enrich scraped recipes with Claude-assigned metadata:
+Enrich scraped recipes with Claude-assigned metadata via AWS Bedrock:
   - mealTypes (breakfast, lunch, dinner, snack)
   - cuisines (Italian, Mexican, etc.)
   - diets (vegetarian, vegan, gluten-free, etc.)
@@ -16,10 +16,10 @@ import json
 import time
 from pathlib import Path
 
-import anthropic
+import boto3
 
-client = anthropic.Anthropic()
-MODEL = "claude-sonnet-4-20250514"
+bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 CLASSIFY_PROMPT = """Classify each recipe below. Return a JSON array with one object per recipe, in the same order.
 
@@ -38,7 +38,7 @@ Recipes:
 
 
 def enrich_batch(recipes: list[dict]) -> list[dict]:
-    """Send a batch of recipes to Claude for classification."""
+    """Send a batch of recipes to Claude via Bedrock for classification."""
     # Build a concise version for the prompt (title + ingredients only)
     summaries = []
     for r in recipes:
@@ -52,13 +52,13 @@ def enrich_batch(recipes: list[dict]) -> list[dict]:
 
     prompt = CLASSIFY_PROMPT.format(recipes_json=json.dumps(summaries, indent=2))
 
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
+    response = bedrock.converse(
+        modelId=MODEL_ID,
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        inferenceConfig={"maxTokens": 4096, "temperature": 0.3},
     )
 
-    text = response.content[0].text
+    text = response["output"]["message"]["content"][0]["text"]
     # Extract JSON array
     start = text.find("[")
     end = text.rfind("]") + 1
@@ -93,7 +93,7 @@ def merge_enrichments(recipes: list[dict], enrichments: list[dict]) -> list[dict
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Enrich recipes with Claude classification")
+    parser = argparse.ArgumentParser(description="Enrich recipes with Claude classification via Bedrock")
     parser.add_argument("--input", default="recipes_raw.json", help="Input JSON file")
     parser.add_argument("--output", default="recipes_enriched.json", help="Output JSON file")
     parser.add_argument("--batch-size", type=int, default=20, help="Recipes per Claude call")

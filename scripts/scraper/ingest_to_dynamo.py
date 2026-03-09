@@ -78,13 +78,13 @@ def build_items_for_recipe(recipe: dict) -> list[dict]:
             }
             items.append(tag)
 
-    # GSI2 tag items: DIET × CUISINE
+    # GSI2 tag items: DIET × CUISINE × MEALTYPE
     for diet in diets:
         for cuisine in cuisines:
             for meal_type in meal_types:
                 dtag = {
                     "pk": f"RECIPE#{recipe_id}",
-                    "sk": f"DTAG#{diet}#{cuisine}",
+                    "sk": f"DTAG#{diet}#{cuisine}#{meal_type}",
                     "gsi2pk": f"DIET#{diet}",
                     "gsi2sk": f"CUISINE#{cuisine}#{meal_type}",
                     "recipeId": recipe_id,
