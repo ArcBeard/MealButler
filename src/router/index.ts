@@ -17,19 +17,7 @@ const router = createRouter({
       component: () => import('@/views/CalendarView.vue'),
       meta: { requiresAuth: true },
     },
-    {
-      path: '/recipes',
-      name: 'recipes',
-      component: () => import('@/views/RecipeListView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/recipe/:weekStart/:dayIndex/:mealType',
-      name: 'recipe-detail',
-      component: () => import('@/views/RecipeView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
+{
       path: '/family-settings',
       name: 'family-settings',
       component: () => import('@/views/FamilySettingsView.vue'),

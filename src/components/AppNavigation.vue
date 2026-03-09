@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Calendar, ChefHat, List, MessageCircle, Users } from 'lucide-vue-next'
+import { Calendar, List, MessageCircle, Users } from 'lucide-vue-next'
 import { navigationItems } from '@/types/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,17 +12,20 @@ import {
 } from '@/components/ui/sheet'
 import { storeToRefs } from 'pinia'
 import { useNavigationStore } from '@/stores/navigation'
-import { useAgentChatStore } from '@/stores/agentChat'
+import { useMealPlanStore } from '@/stores/mealPlan'
+import { usePreferencesStore } from '@/stores/preferences'
+import { computed } from 'vue'
 import type { Component } from 'vue'
 
 const { navOpen } = storeToRefs(useNavigationStore())
-const { isComplete } = storeToRefs(useAgentChatStore())
+const mealPlanStore = useMealPlanStore()
+const prefStore = usePreferencesStore()
+const isUnlocked = computed(() => mealPlanStore.hasCurrentWeekPlan || !!prefStore.preferences)
 
 const router = useRouter()
 
 const iconMap: Record<string, Component> = {
   Calendar,
-  ChefHat,
   List,
   MessageCircle,
   Users,
@@ -34,7 +37,7 @@ function navigateTo(path: string) {
 }
 
 function isItemDisabled(path: string) {
-  return path !== '/' && !isComplete.value
+  return path !== '/' && !isUnlocked.value
 }
 </script>
 
@@ -63,7 +66,7 @@ function isItemDisabled(path: string) {
           {{ item.label }}
         </Button>
       </nav>
-      <p v-if="!isComplete" class="mt-4 px-2 text-xs text-muted-foreground">
+      <p v-if="!isUnlocked" class="mt-4 px-2 text-xs text-muted-foreground">
         Complete the meal planning chat to unlock all pages.
       </p>
     </SheetContent>
