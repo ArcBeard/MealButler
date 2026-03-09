@@ -287,6 +287,42 @@ export class BackendStack extends cdk.Stack {
       }),
     )
 
+    // ─── Get Preferences Lambda ──────────────────────────────────────
+    const getPreferencesFn = new NodejsFunction(this, 'GetPreferencesFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/get-preferences/index.ts'),
+      functionName: 'MealApp-GetPreferences',
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadData(getPreferencesFn)
+
+    // ─── Update Preferences Lambda ────────────────────────────────────
+    const updatePreferencesFn = new NodejsFunction(this, 'UpdatePreferencesFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/update-preferences/index.ts'),
+      functionName: 'MealApp-UpdatePreferences',
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+        GENERATE_FN_NAME: generateMealPlanAsyncFn.functionName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadWriteData(updatePreferencesFn)
+    generateMealPlanAsyncFn.grantInvoke(updatePreferencesFn)
+
     // ─── Get Meal Plan Lambda ─────────────────────────────────────────
     const getMealPlanFn = new NodejsFunction(this, 'GetMealPlanFn', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -381,6 +417,29 @@ export class BackendStack extends cdk.Stack {
     mealPlanResource.addMethod(
       'GET',
       new apigateway.LambdaIntegration(getMealPlanFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+
+    // GET/PUT /api/preferences
+    const preferencesResource = apiResource.addResource('preferences')
+    preferencesResource.addMethod(
+      'GET',
+      new apigateway.LambdaIntegration(getPreferencesFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+    preferencesResource.addMethod(
+      'PUT',
+      new apigateway.LambdaIntegration(updatePreferencesFn),
       authorizer
         ? {
             authorizer,
