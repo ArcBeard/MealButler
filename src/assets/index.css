@@ -115,6 +115,18 @@
   --sidebar-ring: oklch(82% 0.1006 128.2);
 }
 
+/* Slide-right transition for cook view */
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.3s ease;
+}
+.slide-right-enter-from {
+  transform: translateX(100%);
+}
+.slide-right-leave-to {
+  transform: translateX(100%);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

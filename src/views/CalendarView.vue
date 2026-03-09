@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2, Heart, RefreshCw, RotateCcw, CalendarDays, Calendar } from 'lucide-vue-next'
+import CookView from '@/components/cook/CookView.vue'
+import CookSideTab from '@/components/cook/CookSideTab.vue'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -24,8 +25,6 @@ import { storeToRefs } from 'pinia'
 import type { Component } from 'vue'
 import AppWalkthrough from '@/components/walkthrough/AppWalkthrough.vue'
 
-const router = useRouter()
-
 const iconMap: Record<string, Component> = { Sunrise, Sun, Sunset, Cookie }
 
 const mealPlanStore = useMealPlanStore()
@@ -40,6 +39,28 @@ const isLoading = ref(false)
 const error = ref<string | null>(null)
 const viewMode = ref<'daily' | 'weekly'>('daily')
 const showResetDialog = ref(false)
+const selectedMeal = ref<{ dayIndex: number; mealType: MealType } | null>(null)
+
+const cookMeal = computed(() => {
+  if (!selectedMeal.value || !weekPlan.value) return null
+  const day = weekPlan.value[selectedMeal.value.dayIndex]
+  return day?.meals[selectedMeal.value.mealType] ?? null
+})
+
+const cookRecipe = computed(() => cookMeal.value?.recipe ?? null)
+
+function selectRecipe(type: MealType, dayIndex?: number) {
+  const idx = dayIndex ?? selectedDayIndex.value
+  const day = weekPlan.value?.[idx]
+  const meal = day?.meals[type]
+  if (meal?.recipe) {
+    selectedMeal.value = { dayIndex: idx, mealType: type }
+  }
+}
+
+function clearRecipe() {
+  selectedMeal.value = null
+}
 
 const currentMonday = computed(() => {
   const d = new Date(today)
@@ -131,6 +152,7 @@ function confirmResetMenu() {
 
 watch(mondayISO, () => {
   weekPlan.value = null
+  selectedMeal.value = null
   loadWeekPlan()
 }, { immediate: true })
 
@@ -154,8 +176,7 @@ function goToToday() {
 }
 
 function navigateToRecipe(type: MealType, dayIndex?: number) {
-  const idx = dayIndex ?? selectedDayIndex.value
-  router.push(`/recipe/${mondayISO.value}/${idx}/${type}`)
+  selectRecipe(type, dayIndex)
 }
 
 function selectDayFromWeekly(dayIndex: number) {
@@ -194,6 +215,14 @@ onMounted(() => {
 <template>
   <div class="mx-auto max-w-2xl">
     <AppWalkthrough v-if="showWalkthrough" @complete="dismissWalkthrough" />
+
+    <!-- Cook View -->
+    <Transition name="slide-right" mode="out-in">
+      <div v-if="selectedMeal && cookMeal && cookRecipe" key="cook">
+        <CookView :meal="cookMeal" :recipe="cookRecipe" />
+        <CookSideTab @back="clearRecipe" />
+      </div>
+      <div v-else key="calendar">
     <!-- Week Navigator -->
     <div class="mb-4 flex items-center justify-between">
       <Button variant="ghost" size="icon" @click="prevWeek">
@@ -471,5 +500,7 @@ onMounted(() => {
         </div>
       </div>
     </template>
+      </div>
+    </Transition>
   </div>
 </template>
