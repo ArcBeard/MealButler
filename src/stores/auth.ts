@@ -125,8 +125,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function getToken(): Promise<string | null> {
     const token = await getIdToken()
+    console.debug('[auth] getToken() — token:', token ? 'present' : 'NULL', 'user:', !!user.value)
     if (!token && user.value) {
-      // Session expired mid-use — clear and redirect
+      console.debug('[auth] getToken() — session expired, clearing and redirecting')
       clearLocalSession()
       loginWithHostedUI().catch(() => {})
       return null

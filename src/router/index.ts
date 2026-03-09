@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useMealPlanStore } from '@/stores/mealPlan'
 import { usePreferencesStore } from '@/stores/preferences'
 
 const router = createRouter({
@@ -17,7 +16,7 @@ const router = createRouter({
       component: () => import('@/views/CalendarView.vue'),
       meta: { requiresAuth: true },
     },
-{
+    {
       path: '/family-settings',
       name: 'family-settings',
       component: () => import('@/views/FamilySettingsView.vue'),
@@ -27,28 +26,27 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const { hasCurrentWeekPlan } = useMealPlanStore()
+  const authStore = useAuthStore()
   const prefStore = usePreferencesStore()
 
-  // Returning user with plan → calendar
-  if (to.path === '/' && hasCurrentWeekPlan) {
+  console.debug('[router] beforeEach to:', to.path, {
+    isAuthenticated: authStore.isAuthenticated,
+    isAuthConfigured: authStore.isAuthConfigured,
+    hasPreferences: !!prefStore.preferences,
+    preferences: prefStore.preferences,
+    requiresAuth: to.meta.requiresAuth,
+  })
+
+  // Has preferences → go to calendar
+  if (to.path === '/' && prefStore.preferences) {
+    console.debug('[router] redirecting / → /calendar (has preferences)')
     return '/calendar'
   }
 
-  // Protect routes: need either a plan or saved preferences
-  if (to.path !== '/') {
-    if (!hasCurrentWeekPlan && !prefStore.preferences) {
-      return '/'
-    }
-  }
-
-  // Auth guard for protected routes
-  if (to.meta.requiresAuth) {
-    const authStore = useAuthStore()
-    // Skip auth check when auth is not configured (local dev)
-    if (authStore.isAuthConfigured && !authStore.isAuthenticated) {
-      return '/'
-    }
+  // Auth guard
+  if (to.meta.requiresAuth && authStore.isAuthConfigured && !authStore.isAuthenticated) {
+    console.debug('[router] blocking', to.path, '→ / (not authenticated)')
+    return '/'
   }
 })
 

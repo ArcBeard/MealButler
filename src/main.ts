@@ -4,25 +4,19 @@ import '@/assets/index.css'
 import App from './App.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
-import { useMealPlanStore } from '@/stores/mealPlan'
+import { usePreferencesStore } from '@/stores/preferences'
 
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
-app.use(router)
 
-// Initialize auth, then check for existing meal plan before mounting
-console.debug('[App] Starting initialization, URL:', window.location.href)
+// Initialize stores BEFORE installing router so the guard sees populated state
 const authStore = useAuthStore()
-authStore
-  .initialize()
-  .then(() => {
-    console.debug('[App] Auth initialized, isAuthenticated:', authStore.isAuthenticated)
-    if (authStore.isAuthenticated) {
-      return useMealPlanStore().initialize()
-    }
-  })
-  .finally(() => {
-    console.debug('[App] Mounting app')
-    app.mount('#app')
-  })
+await authStore.initialize()
+
+if (authStore.isAuthenticated) {
+  await usePreferencesStore().fetchPreferences()
+}
+
+app.use(router)
+app.mount('#app')
