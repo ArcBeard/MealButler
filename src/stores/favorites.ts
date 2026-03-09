@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { Recipe } from '@/types/meals'
 
 export interface FavoriteEntry {
-  recipeId: number
+  recipeId: string
   title: string
   imageUrl?: string
   cuisines: string[]
@@ -14,11 +14,11 @@ export interface FavoriteEntry {
 const STORAGE_KEY = 'mealapp-favorites'
 
 export const useFavoritesStore = defineStore('favorites', () => {
-  const favorites = ref<Map<number, FavoriteEntry>>(new Map())
+  const favorites = ref<Map<string, FavoriteEntry>>(new Map())
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
-  function isFavorite(recipeId: number): boolean {
+  function isFavorite(recipeId: string): boolean {
     return favorites.value.has(recipeId)
   }
 
@@ -30,7 +30,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) {
         const entries: FavoriteEntry[] = JSON.parse(stored)
-        const map = new Map<number, FavoriteEntry>()
+        const map = new Map<string, FavoriteEntry>()
         for (const entry of entries) {
           map.set(entry.recipeId, entry)
         }
@@ -58,7 +58,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
       if (!response.ok) throw new Error(`API error: ${response.status}`)
 
       const data: FavoriteEntry[] = await response.json()
-      const map = new Map<number, FavoriteEntry>()
+      const map = new Map<string, FavoriteEntry>()
       for (const entry of data) {
         map.set(entry.recipeId, entry)
       }
@@ -72,7 +72,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
   }
 
   async function toggleFavorite(recipe: Recipe) {
-    const recipeId = recipe.spoonacularId
+    const recipeId = recipe.recipeId
     const wasLiked = isFavorite(recipeId)
     const config = await getConfig()
 

@@ -11,7 +11,7 @@ const props = defineProps<{
 
 const favoritesStore = useFavoritesStore()
 
-const favorited = computed(() => favoritesStore.isFavorite(props.recipe.spoonacularId))
+const favorited = computed(() => favoritesStore.isFavorite(props.recipe.recipeId))
 
 function toggle() {
   favoritesStore.toggleFavorite(props.recipe)

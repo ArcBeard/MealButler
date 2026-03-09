@@ -256,11 +256,10 @@ export class BackendStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../lambda/generate-meal-plan-async/index.ts'),
       functionName: 'MealApp-GenerateMealPlanAsync',
-      timeout: cdk.Duration.seconds(180),
+      timeout: cdk.Duration.seconds(300),
       environment: {
         TABLE_NAME: table.tableName,
         MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
-        SPOONACULAR_API_KEY_PARAM: '/mealapp/spoonacular-api-key',
       },
       bundling: {
         minify: true,
@@ -269,14 +268,6 @@ export class BackendStack extends cdk.Stack {
     })
 
     table.grantReadWriteData(generateMealPlanAsyncFn)
-
-    // Grant SSM read via IAM policy directly (avoids CloudFormation SecureString resolution error)
-    generateMealPlanAsyncFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['ssm:GetParameter'],
-        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/mealapp/spoonacular-api-key`],
-      }),
-    )
 
     generateMealPlanAsyncFn.addToRolePolicy(
       new iam.PolicyStatement({

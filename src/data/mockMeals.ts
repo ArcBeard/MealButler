@@ -29,11 +29,8 @@ export function generateMockWeek(referenceDate: Date): DayPlan[] {
     // Monday
     {
       breakfast: { id: '1', name: 'Overnight Oats', prepMinutes: 10, calories: 350, emoji: '🥣', recipe: {
-        spoonacularId: 649931,
+        recipeId: 'mon-overnight-oats',
         title: 'Overnight Oats with Berries',
-        imageUrl: 'https://img.spoonacular.com/recipes/649931-312x231.jpg',
-        sourceUrl: 'https://www.budgetbytes.com/overnight-oats/',
-        sourceName: 'Budget Bytes',
         servings: 2,
         readyInMinutes: 10,
         prepMinutes: 10,
@@ -53,11 +50,8 @@ export function generateMockWeek(referenceDate: Date): DayPlan[] {
         diets: ['vegetarian'],
       }},
       lunch: { id: '2', name: 'Chicken Caesar Salad', prepMinutes: 15, calories: 480, emoji: '🥗', recipe: {
-        spoonacularId: 782585,
+        recipeId: 'mon-chicken-caesar-salad',
         title: 'Classic Chicken Caesar Salad',
-        imageUrl: 'https://img.spoonacular.com/recipes/782585-312x231.jpg',
-        sourceUrl: 'https://www.simplyrecipes.com/recipes/chicken_caesar_salad/',
-        sourceName: 'Simply Recipes',
         servings: 4,
         readyInMinutes: 25,
         prepMinutes: 15,
@@ -80,11 +74,8 @@ export function generateMockWeek(referenceDate: Date): DayPlan[] {
         diets: [],
       }},
       dinner: { id: '3', name: 'Salmon & Asparagus', prepMinutes: 25, calories: 520, emoji: '🐟', recipe: {
-        spoonacularId: 511728,
+        recipeId: 'mon-baked-salmon-asparagus',
         title: 'Baked Salmon with Roasted Asparagus',
-        imageUrl: 'https://img.spoonacular.com/recipes/511728-312x231.jpg',
-        sourceUrl: 'https://www.halfbakedharvest.com/baked-salmon/',
-        sourceName: 'Half Baked Harvest',
         servings: 2,
         readyInMinutes: 30,
         prepMinutes: 10,

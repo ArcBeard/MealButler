@@ -14,7 +14,7 @@ export interface RecipeStep {
 }
 
 export interface Recipe {
-  spoonacularId: number
+  recipeId: string
   title: string
   imageUrl?: string
   sourceUrl?: string

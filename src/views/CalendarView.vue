@@ -451,7 +451,7 @@ onMounted(() => {
               >
                 <Heart
                   class="size-4"
-                  :class="favoritesStore.isFavorite(dayPlan.meals[type]!.recipe!.spoonacularId)
+                  :class="favoritesStore.isFavorite(dayPlan.meals[type]!.recipe!.recipeId)
                     ? 'fill-red-500 text-red-500'
                     : 'text-white'"
                 />

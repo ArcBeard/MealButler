@@ -47,7 +47,7 @@ const mealPlanRecipes = computed<MealPlanRecipeEntry[]>(() => {
   const plan = mealPlanStore.weekPlans[weekStart]
   if (!plan) return []
 
-  const seen = new Set<number>()
+  const seen = new Set<string>()
   const entries: MealPlanRecipeEntry[] = []
   const mealTypes: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
@@ -55,8 +55,8 @@ const mealPlanRecipes = computed<MealPlanRecipeEntry[]>(() => {
     for (const type of mealTypes) {
       const meal = day.meals[type]
       if (!meal?.recipe) continue
-      if (seen.has(meal.recipe.spoonacularId)) continue
-      seen.add(meal.recipe.spoonacularId)
+      if (seen.has(meal.recipe.recipeId)) continue
+      seen.add(meal.recipe.recipeId)
       entries.push({
         recipe: meal.recipe,
         mealName: meal.name,
@@ -130,7 +130,7 @@ const mealPlanRecipes = computed<MealPlanRecipeEntry[]>(() => {
       <div v-else class="grid grid-cols-2 gap-3">
         <RouterLink
           v-for="entry in mealPlanRecipes"
-          :key="entry.recipe.spoonacularId"
+          :key="entry.recipe.recipeId"
           :to="`/recipe/${entry.weekStart}/${entry.dayIndex}/${entry.mealType}`"
           class="block"
         >
