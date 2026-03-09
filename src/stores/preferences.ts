@@ -57,7 +57,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     }
   }
 
-  async function savePreferences(prefs: MealPreferences) {
+  async function savePreferences(prefs: MealPreferences, week?: string) {
     const config = await getConfig()
 
     if (!config.apiUrl) {
@@ -81,7 +81,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
       const response = await fetch(`${config.apiUrl}/api/preferences`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify(prefs),
+        body: JSON.stringify({ ...prefs, week }),
       })
 
       if (!response.ok) throw new Error(`API error: ${response.status}`)

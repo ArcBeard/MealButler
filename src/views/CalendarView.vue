@@ -118,9 +118,15 @@ const selectedDayLabel = computed(() =>
 const weekPlan = ref<DayPlan[] | null>(null)
 
 async function loadWeekPlan() {
+  console.debug('[CalendarView] loadWeekPlan — mondayISO:', mondayISO.value, 'weekOffset:', weekOffset.value)
   isLoading.value = true
   error.value = null
   const { status, plan } = await mealPlanStore.fetchWeekPlan(mondayISO.value)
+  console.debug('[CalendarView] fetchWeekPlan result:', {
+    status,
+    planDates: plan?.map(d => d.date),
+    planMeals: plan?.map(d => ({ date: d.date, meals: Object.keys(d.meals) })),
+  })
   if (status === 'ready' && plan) {
     weekPlan.value = plan
   } else if (status === 'generating') {
@@ -137,7 +143,7 @@ async function regeneratePlan() {
   weekPlan.value = null
   mealPlanStore.clearCache()
   if (preferencesStore.preferences) {
-    await preferencesStore.savePreferences(preferencesStore.preferences)
+    await preferencesStore.savePreferences(preferencesStore.preferences, mondayISO.value)
   }
   // Go straight to polling — the save already wrote status:"generating" in DynamoDB,
   // but a normal fetch might read stale "ready" data due to eventual consistency.

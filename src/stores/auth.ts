@@ -7,7 +7,7 @@ import {
   logout,
   getAuthUser,
   getIdToken,
-  getUserAttributes,
+  getUserAttributesFromToken,
 } from '@/services/auth'
 
 interface AuthUser {
@@ -42,18 +42,40 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function initialize() {
+    console.debug('[AuthStore] initialize() start, URL:', window.location.href)
+    // Log URL params that Amplify uses for OAuth code exchange
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.has('code')) {
+      console.debug('[AuthStore] OAuth code detected in URL:', {
+        code: urlParams.get('code')?.substring(0, 10) + '...',
+        state: urlParams.get('state')?.substring(0, 10) + '...',
+      })
+    }
+    if (urlParams.has('error')) {
+      console.error('[AuthStore] OAuth error in URL:', {
+        error: urlParams.get('error'),
+        errorDescription: urlParams.get('error_description'),
+      })
+    }
+
     isLoading.value = true
     try {
       const configured = await configureAuth()
       isAuthConfigured.value = configured
-      if (!configured) return
+      if (!configured) {
+        console.debug('[AuthStore] Auth not configured, skipping')
+        return
+      }
 
       // Check if user is already authenticated (e.g. after OAuth redirect)
+      console.debug('[AuthStore] Checking for existing user...')
       const currentUser = await getAuthUser()
       if (currentUser) {
+        console.debug('[AuthStore] User found, verifying session...')
         // Verify the session is still valid by getting a token
         const token = await getIdToken()
         if (!token) {
+          console.debug('[AuthStore] Session expired, clearing and redirecting')
           // Session expired — clear stale state and redirect
           clearLocalSession()
           loginWithHostedUI().catch(() => {
@@ -62,20 +84,25 @@ export const useAuthStore = defineStore('auth', () => {
           return
         }
 
-        const attrs = await getUserAttributes()
+        // Use ID token claims directly (avoids 400 from fetchUserAttributes needing admin scope)
+        const attrs = await getUserAttributesFromToken()
         user.value = {
           sub: currentUser.userId,
           email: attrs?.email ?? '',
           givenName: attrs?.given_name,
           picture: attrs?.picture,
         }
+        console.debug('[AuthStore] Authenticated as:', { sub: user.value.sub, email: user.value.email })
+      } else {
+        console.debug('[AuthStore] No existing user found')
       }
     } catch (error) {
-      console.error('Auth initialization error:', error)
+      console.error('[AuthStore] initialization error:', error)
       // If init fails entirely, clear stale state so UI reflects reality
       clearLocalSession()
     } finally {
       isLoading.value = false
+      console.debug('[AuthStore] initialize() complete, isAuthenticated:', !!user.value)
     }
   }
 

@@ -14,11 +14,14 @@
 - `npm run dev` - Start dev server with hot reload
 - `npm run build` - Production build
 - `npm run preview` - Preview production build
+- `bash scripts/deploy-frontend.sh` - Deploy frontend to S3/CloudFront (use for all frontend deploys)
 
 ## Git Flow
 - `main` - Production-ready code
 - `develop` - Integration branch
 - `feature/*` - Feature branches off develop
+- **Always create new commits** — never amend pushed commits
+- **Ask before any risky git operation** (force push, rebase, reset, amend) — explain what it does and why before proceeding
 
 ## Coding Conventions
 - Vue SFCs use `<script setup lang="ts">`

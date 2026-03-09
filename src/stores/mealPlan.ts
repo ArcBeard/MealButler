@@ -38,8 +38,10 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
 
   /** Fetch a week's meal plan. Always validates cache against the server. */
   async function fetchWeekPlan(weekStart: string): Promise<{ status: PlanStatus; plan: DayPlan[] | null }> {
+    console.debug('[MealPlan] fetchWeekPlan called for week:', weekStart)
     const config = await getConfig()
     if (!config.apiUrl) {
+      console.debug('[MealPlan] No apiUrl, using mock data')
       // Local dev: use mock data (no server to validate against)
       if (!weekPlans.value[weekStart]) {
         const monday = new Date(weekStart + 'T00:00:00')
@@ -51,6 +53,11 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
     }
 
     const cached = weekPlans.value[weekStart]
+    console.debug('[MealPlan] Cache status:', {
+      hasCached: !!cached,
+      cachedHash: planHashes.value[weekStart],
+      cachedDates: cached?.map(d => d.date),
+    })
     // Only show loading spinner when we have nothing cached
     if (!cached) isLoading.value = true
     error.value = null
@@ -62,9 +69,12 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
       if (token) headers['Authorization'] = token
 
       const params = new URLSearchParams({ week: weekStart })
-      const response = await fetch(`${config.apiUrl}/api/meal-plan?${params}`, { headers })
+      const url = `${config.apiUrl}/api/meal-plan?${params}`
+      console.debug('[MealPlan] Fetching:', url)
+      const response = await fetch(url, { headers })
 
       if (response.status === 404) {
+        console.debug('[MealPlan] 404 — plan not found')
         // Plan was deleted or never existed — clear stale cache
         delete weekPlans.value[weekStart]
         delete planHashes.value[weekStart]
@@ -74,6 +84,14 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
       if (!response.ok) throw new Error(`API error: ${response.status}`)
 
       const data = await response.json()
+      console.debug('[MealPlan] API response:', {
+        status: data.status,
+        week: data.week,
+        createdAt: data.createdAt,
+        mealPlanDates: data.mealPlan?.map((d: DayPlan) => d.date),
+        requestedWeek: weekStart,
+        weekMismatch: data.week !== weekStart,
+      })
 
       if (data.status === 'generating') {
         return { status: 'generating', plan: null }
@@ -82,18 +100,23 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
       // Compare hash to detect changes
       const newHash = hashString(JSON.stringify(data.mealPlan))
       if (cached && planHashes.value[weekStart] === newHash) {
+        console.debug('[MealPlan] Hash match — serving cached data')
         return { status: 'ready', plan: cached }
       }
 
+      console.debug('[MealPlan] Updating cache, hash:', { old: planHashes.value[weekStart], new: newHash })
       // Plan is new or changed — update cache
       weekPlans.value[weekStart] = data.mealPlan
       planHashes.value[weekStart] = newHash
       return { status: 'ready', plan: data.mealPlan }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch meal plan'
-      console.error('Failed to fetch meal plan:', err)
+      console.error('[MealPlan] Fetch failed:', err)
       // Return stale cache if available, otherwise not_found
-      if (cached) return { status: 'ready', plan: cached }
+      if (cached) {
+        console.debug('[MealPlan] Returning stale cache on error')
+        return { status: 'ready', plan: cached }
+      }
       return { status: 'not_found', plan: null }
     } finally {
       isLoading.value = false
@@ -132,11 +155,15 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
 
   /** Check if the current week has a ready meal plan. Called on app startup. */
   async function initialize() {
-    const { status } = await fetchWeekPlan(getCurrentWeekMonday())
+    const monday = getCurrentWeekMonday()
+    console.debug('[MealPlan] initialize() — currentWeekMonday:', monday, 'today:', new Date().toISOString())
+    const { status } = await fetchWeekPlan(monday)
     hasCurrentWeekPlan.value = status === 'ready'
+    console.debug('[MealPlan] initialize() done — hasCurrentWeekPlan:', hasCurrentWeekPlan.value)
   }
 
   function clearCache() {
+    console.debug('[MealPlan] clearCache() — clearing all cached weeks:', Object.keys(weekPlans.value))
     weekPlans.value = {}
     planHashes.value = {}
   }

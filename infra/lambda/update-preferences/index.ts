@@ -63,7 +63,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       }
     }
 
-    const preferences = JSON.parse(event.body || '{}')
+    const body = JSON.parse(event.body || '{}')
+    const { week, ...preferences } = body
     const pk = `USER#${cognitoSub}`
 
     // Save preferences
@@ -79,8 +80,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       }),
     )
 
-    // Write "generating" placeholder for current week's meal plan
-    const weekStart = getCurrentWeekMonday()
+    // Write "generating" placeholder — use client-provided week to avoid timezone mismatch
+    const weekStart = week ?? getCurrentWeekMonday()
     await dynamodb.send(
       new PutCommand({
         TableName: TABLE_NAME,
@@ -101,7 +102,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         FunctionName: GENERATE_FN_NAME,
         InvocationType: 'Event',
         Payload: new TextEncoder().encode(
-          JSON.stringify({ pk, preferences }),
+          JSON.stringify({ pk, preferences, weekStart }),
         ),
       }),
     )

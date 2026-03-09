@@ -58,6 +58,7 @@ interface RequestBody {
   inputText: string
   step: string
   preferences?: MealPreferences
+  week?: string
 }
 
 interface APIGatewayProxyEvent {
@@ -99,7 +100,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   try {
     const body: RequestBody = JSON.parse(event.body || '{}')
-    const { sessionId, inputText, step, preferences } = body
+    const { sessionId, inputText, step, preferences, week } = body
 
     if (!sessionId || !step) {
       return {
@@ -162,7 +163,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
         // Write a "generating" placeholder so the frontend can distinguish
         // "plan in progress" from "no plan at all"
-        const weekStart = getCurrentWeekMonday()
+        const weekStart = week ?? getCurrentWeekMonday()
         await dynamodb.send(
           new PutCommand({
             TableName: TABLE_NAME,
@@ -184,7 +185,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
               FunctionName: GENERATE_FN_NAME,
               InvocationType: 'Event',
               Payload: new TextEncoder().encode(
-                JSON.stringify({ pk, preferences }),
+                JSON.stringify({ pk, preferences, weekStart }),
               ),
             }),
           )

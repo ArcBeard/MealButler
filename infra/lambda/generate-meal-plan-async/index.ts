@@ -60,6 +60,7 @@ interface DayPlan {
 interface GenerateEvent {
   pk: string
   preferences: Record<string, unknown>
+  weekStart?: string
 }
 
 async function fetchUserFavorites(pk: string): Promise<Favorite[]> {
@@ -197,7 +198,8 @@ export const handler = async (event: GenerateEvent): Promise<void> => {
   console.log('generate-meal-plan-async invoked:', JSON.stringify(event))
 
   const { pk, preferences } = event
-  const weekStart = getCurrentWeekMonday()
+  // Use client-provided week to avoid timezone mismatch between frontend and Lambda (UTC)
+  const weekStart = event.weekStart ?? getCurrentWeekMonday()
 
   // Fetch user's favorite recipes for prompt enhancement
   const favorites = await fetchUserFavorites(pk)

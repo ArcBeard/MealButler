@@ -4,7 +4,6 @@ import {
   signOut as amplifySignOut,
   getCurrentUser,
   fetchAuthSession,
-  fetchUserAttributes,
 } from 'aws-amplify/auth'
 import { getConfig } from '@/services/config'
 
@@ -15,9 +14,25 @@ export async function configureAuth(): Promise<boolean> {
   if (configured) return true
 
   const config = await getConfig()
-  if (!config.cognito) return false
+  if (!config.cognito) {
+    console.debug('[Auth] No cognito config found, skipping auth setup')
+    return false
+  }
 
   const { userPoolId, clientId, domain, region } = config.cognito
+  const oauthDomain = `${domain}.auth.${region}.amazoncognito.com`
+  const redirectSignIn = window.location.origin + '/'
+  const redirectSignOut = window.location.origin + '/'
+
+  console.debug('[Auth] Configuring Amplify:', {
+    userPoolId,
+    clientId,
+    oauthDomain,
+    redirectSignIn,
+    redirectSignOut,
+    currentUrl: window.location.href,
+    origin: window.location.origin,
+  })
 
   Amplify.configure({
     Auth: {
@@ -26,10 +41,10 @@ export async function configureAuth(): Promise<boolean> {
         userPoolClientId: clientId,
         loginWith: {
           oauth: {
-            domain: `${domain}.auth.${region}.amazoncognito.com`,
+            domain: oauthDomain,
             scopes: ['openid', 'email', 'profile'],
-            redirectSignIn: [window.location.origin + '/'],
-            redirectSignOut: [window.location.origin + '/'],
+            redirectSignIn: [redirectSignIn],
+            redirectSignOut: [redirectSignOut],
             responseType: 'code',
           },
         },
@@ -42,21 +57,27 @@ export async function configureAuth(): Promise<boolean> {
 }
 
 export function loginWithGoogle() {
+  console.debug('[Auth] Initiating Google sign-in redirect')
   return signInWithRedirect({ provider: 'Google' })
 }
 
 export function loginWithHostedUI() {
+  console.debug('[Auth] Initiating Hosted UI sign-in redirect')
   return signInWithRedirect()
 }
 
 export async function logout() {
+  console.debug('[Auth] Signing out globally')
   return amplifySignOut({ global: true })
 }
 
 export async function getAuthUser() {
   try {
-    return await getCurrentUser()
-  } catch {
+    const user = await getCurrentUser()
+    console.debug('[Auth] getCurrentUser:', user ? { userId: user.userId, username: user.username } : null)
+    return user
+  } catch (err) {
+    console.debug('[Auth] getCurrentUser failed:', err)
     return null
   }
 }
@@ -64,16 +85,33 @@ export async function getAuthUser() {
 export async function getIdToken(): Promise<string | null> {
   try {
     const session = await fetchAuthSession()
-    return session.tokens?.idToken?.toString() ?? null
-  } catch {
+    const token = session.tokens?.idToken?.toString() ?? null
+    console.debug('[Auth] fetchAuthSession:', {
+      hasTokens: !!session.tokens,
+      hasIdToken: !!token,
+      tokenPrefix: token ? token.substring(0, 20) + '...' : null,
+    })
+    return token
+  } catch (err) {
+    console.debug('[Auth] fetchAuthSession failed:', err)
     return null
   }
 }
 
-export async function getUserAttributes() {
+/** Extract user attributes from the ID token JWT payload (no extra scopes needed). */
+export async function getUserAttributesFromToken(): Promise<Record<string, string> | null> {
   try {
-    return await fetchUserAttributes()
-  } catch {
+    const session = await fetchAuthSession()
+    const payload = session.tokens?.idToken?.payload
+    if (!payload) return null
+    const attrs: Record<string, string> = {}
+    if (payload.email) attrs.email = String(payload.email)
+    if (payload.given_name) attrs.given_name = String(payload.given_name)
+    if (payload.picture) attrs.picture = String(payload.picture)
+    console.debug('[Auth] getUserAttributesFromToken:', attrs)
+    return attrs
+  } catch (err) {
+    console.debug('[Auth] getUserAttributesFromToken failed:', err)
     return null
   }
 }
