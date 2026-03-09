@@ -7,7 +7,6 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as bedrock from 'aws-cdk-lib/aws-bedrock'
 import * as apigateway from 'aws-cdk-lib/aws-apigateway'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
-import * as ssm from 'aws-cdk-lib/aws-ssm'
 import * as path from 'path'
 
 interface BackendStackProps extends cdk.StackProps {
@@ -252,13 +251,6 @@ export class BackendStack extends cdk.Stack {
       agentAliasName: 'production',
     })
 
-    // ─── SSM Parameter for Spoonacular API Key ─────────────────────
-    const spoonacularApiKeyParam = ssm.StringParameter.fromStringParameterName(
-      this,
-      'SpoonacularApiKey',
-      '/mealapp/spoonacular-api-key',
-    )
-
     // ─── Async Meal Plan Generation Lambda ──────────────────────────
     const generateMealPlanAsyncFn = new NodejsFunction(this, 'GenerateMealPlanAsyncFn', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -277,7 +269,14 @@ export class BackendStack extends cdk.Stack {
     })
 
     table.grantReadWriteData(generateMealPlanAsyncFn)
-    spoonacularApiKeyParam.grantRead(generateMealPlanAsyncFn)
+
+    // Grant SSM read via IAM policy directly (avoids CloudFormation SecureString resolution error)
+    generateMealPlanAsyncFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/mealapp/spoonacular-api-key`],
+      }),
+    )
 
     generateMealPlanAsyncFn.addToRolePolicy(
       new iam.PolicyStatement({
