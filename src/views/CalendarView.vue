@@ -1,9 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2, Heart, RefreshCw } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Plus, Clock, Flame, Sunrise, Sun, Sunset, Cookie, Loader2, Heart, RefreshCw, RotateCcw, CalendarDays, Calendar } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { mealTypeConfig } from '@/types/meals'
 import type { MealType, Meal, DayPlan } from '@/types/meals'
 import { useMealPlanStore } from '@/stores/mealPlan'
@@ -27,6 +38,8 @@ const weekOffset = ref(0)
 const selectedDayIndex = ref(today.getDay() === 0 ? 6 : today.getDay() - 1)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
+const viewMode = ref<'daily' | 'weekly'>('daily')
+const showResetDialog = ref(false)
 
 const currentMonday = computed(() => {
   const d = new Date(today)
@@ -53,6 +66,7 @@ const weekDays = computed(() => {
       date: d,
       dayAbbr: d.toLocaleDateString('en-US', { weekday: 'short' }),
       dayNum: d.getDate(),
+      dayLabel: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
       isToday: d.toDateString() === today.toDateString(),
     })
   }
@@ -107,6 +121,11 @@ async function regeneratePlan() {
   await loadWeekPlan()
 }
 
+function confirmResetMenu() {
+  showResetDialog.value = false
+  regeneratePlan()
+}
+
 watch(mondayISO, () => {
   weekPlan.value = null
   loadWeekPlan()
@@ -131,8 +150,14 @@ function goToToday() {
   selectedDayIndex.value = today.getDay() === 0 ? 6 : today.getDay() - 1
 }
 
-function navigateToRecipe(type: MealType) {
-  router.push(`/recipe/${mondayISO.value}/${selectedDayIndex.value}/${type}`)
+function navigateToRecipe(type: MealType, dayIndex?: number) {
+  const idx = dayIndex ?? selectedDayIndex.value
+  router.push(`/recipe/${mondayISO.value}/${idx}/${type}`)
+}
+
+function selectDayFromWeekly(dayIndex: number) {
+  selectedDayIndex.value = dayIndex
+  viewMode.value = 'daily'
 }
 
 function toggleFavorite(meal: Meal, event: Event) {
@@ -171,19 +196,70 @@ onMounted(() => {
       <Button variant="ghost" size="icon" @click="prevWeek">
         <ChevronLeft class="h-5 w-5" />
       </Button>
-      <button
-        class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-        @click="goToToday"
-      >
-        {{ weekLabel }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          @click="goToToday"
+        >
+          {{ weekLabel }}
+        </button>
+        <AlertDialog v-model:open="showResetDialog">
+          <AlertDialogTrigger as-child>
+            <Button
+              v-if="weekPlan"
+              variant="ghost"
+              size="icon"
+              class="h-8 w-8"
+              title="Reset this week's menu"
+            >
+              <RotateCcw class="h-4 w-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reset this week's menu?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Jeeves will generate a completely new meal plan based on your current preferences.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction @click="confirmResetMenu">Reset Menu</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
       <Button variant="ghost" size="icon" @click="nextWeek">
         <ChevronRight class="h-5 w-5" />
       </Button>
     </div>
 
-    <!-- Day Strip -->
-    <div class="mb-6 grid grid-cols-7 gap-1">
+    <!-- View Mode Toggle -->
+    <div v-if="weekPlan" class="mb-4 flex justify-center">
+      <div class="inline-flex rounded-lg border border-border p-0.5">
+        <Button
+          :variant="viewMode === 'weekly' ? 'default' : 'ghost'"
+          size="sm"
+          class="gap-1.5 rounded-md"
+          @click="viewMode = 'weekly'"
+        >
+          <CalendarDays class="h-4 w-4" />
+          Weekly
+        </Button>
+        <Button
+          :variant="viewMode === 'daily' ? 'default' : 'ghost'"
+          size="sm"
+          class="gap-1.5 rounded-md"
+          @click="viewMode = 'daily'"
+        >
+          <Calendar class="h-4 w-4" />
+          Daily
+        </Button>
+      </div>
+    </div>
+
+    <!-- Day Strip (daily view only) -->
+    <div v-if="viewMode === 'daily'" class="mb-6 grid grid-cols-7 gap-1">
       <button
         v-for="(day, i) in weekDays"
         :key="day.dayNum"
@@ -227,7 +303,51 @@ onMounted(() => {
       <p class="text-xs">Chat with Jeeves to generate one!</p>
     </div>
 
-    <!-- Meal Plan Content -->
+    <!-- Weekly View -->
+    <template v-else-if="viewMode === 'weekly'">
+      <div class="flex flex-col gap-5">
+        <div v-for="(day, dayIdx) in weekDays" :key="dayIdx">
+          <!-- Day Header -->
+          <button
+            class="mb-2 flex items-center gap-2 text-sm font-semibold transition-colors hover:text-primary"
+            :class="day.isToday ? 'text-primary' : 'text-foreground'"
+            @click="selectDayFromWeekly(dayIdx)"
+          >
+            {{ day.dayLabel }}
+            <span v-if="day.isToday" class="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">Today</span>
+          </button>
+
+          <!-- Compact Meal Cards Row -->
+          <div class="grid grid-cols-4 gap-2">
+            <template v-for="type in mealTypes" :key="type">
+              <button
+                v-if="weekPlan?.[dayIdx]?.meals[type]"
+                class="flex flex-col items-start gap-1 rounded-lg bg-card p-2 text-left transition-colors hover:bg-accent border border-border"
+                @click="weekPlan![dayIdx]!.meals[type]!.recipe ? navigateToRecipe(type, dayIdx) : selectDayFromWeekly(dayIdx)"
+              >
+                <div class="flex w-full items-center gap-1">
+                  <component :is="iconMap[mealTypeConfig[type].icon]" class="h-3 w-3 shrink-0 text-primary" />
+                  <span class="text-lg leading-none">{{ weekPlan![dayIdx]!.meals[type]!.emoji }}</span>
+                </div>
+                <p class="w-full truncate text-xs font-medium">{{ weekPlan![dayIdx]!.meals[type]!.name }}</p>
+                <span class="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                  <Flame class="h-2.5 w-2.5" />
+                  {{ weekPlan![dayIdx]!.meals[type]!.calories }} cal
+                </span>
+              </button>
+              <div
+                v-else
+                class="flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/20 p-2 text-muted-foreground/40"
+              >
+                <Plus class="h-3 w-3" />
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Daily View (existing) -->
     <template v-else>
       <!-- Selected Day Header -->
       <div class="mb-4 flex items-center justify-between">
