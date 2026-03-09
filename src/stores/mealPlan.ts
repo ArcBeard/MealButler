@@ -33,6 +33,7 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
   const planHashes = ref<Record<string, string>>({})
   const isLoading = ref(false)
   const isGenerating = ref(false)
+  const dayRegenerating = ref<string | null>(null)
   const error = ref<string | null>(null)
   const hasCurrentWeekPlan = ref(false)
 
@@ -92,6 +93,9 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
         requestedWeek: weekStart,
         weekMismatch: data.week !== weekStart,
       })
+
+      // Track per-day regeneration state
+      dayRegenerating.value = data.dayRegenerating ?? null
 
       if (data.status === 'generating') {
         return { status: 'generating', plan: null }
@@ -153,6 +157,62 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
     }
   }
 
+  /** Regenerate a single day's meals */
+  async function regenerateDay(weekStart: string, date: string): Promise<DayPlan[] | null> {
+    const config = await getConfig()
+    if (!config.apiUrl) return null
+
+    dayRegenerating.value = date
+    error.value = null
+
+    try {
+      const authStore = useAuthStore()
+      const token = await authStore.getToken()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = token
+
+      const response = await fetch(`${config.apiUrl}/api/meal-plan/regenerate-day`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ weekStart, date }),
+      })
+
+      if (!response.ok) throw new Error(`API error: ${response.status}`)
+
+      // Invalidate cache so polling fetches fresh data
+      delete planHashes.value[weekStart]
+
+      // Poll until the day is regenerated (dayRegenerating clears when done)
+      const plan = await pollForDayRegeneration(weekStart)
+      return plan
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to regenerate day'
+      console.error('[MealPlan] regenerateDay failed:', err)
+      dayRegenerating.value = null
+      return null
+    }
+  }
+
+  /** Poll until dayRegenerating is cleared (single-day regeneration complete) */
+  async function pollForDayRegeneration(
+    weekStart: string,
+    intervalMs = 3000,
+    timeoutMs = 90000,
+  ): Promise<DayPlan[] | null> {
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < timeoutMs) {
+      const { status, plan } = await fetchWeekPlan(weekStart)
+      if (status === 'ready' && plan && !dayRegenerating.value) {
+        return plan
+      }
+      await new Promise((r) => setTimeout(r, intervalMs))
+    }
+
+    dayRegenerating.value = null
+    return null
+  }
+
   /** Check if the current week has a ready meal plan. Called on app startup. */
   async function initialize() {
     const monday = getCurrentWeekMonday()
@@ -172,11 +232,13 @@ export const useMealPlanStore = defineStore('mealPlan', () => {
     weekPlans,
     isLoading,
     isGenerating,
+    dayRegenerating,
     error,
     hasCurrentWeekPlan,
     initialize,
     fetchWeekPlan,
     pollForPlan,
+    regenerateDay,
     clearCache,
   }
 })

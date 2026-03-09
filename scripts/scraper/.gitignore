@@ -1,0 +1,5 @@
+recipes_raw.json
+recipes_enriched.json
+__pycache__/
+*.pyc
+.venv/

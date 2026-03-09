@@ -28,6 +28,21 @@ export class BackendStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     })
 
+    // ─── Recipe DB GSIs ──────────────────────────────────────────────
+    table.addGlobalSecondaryIndex({
+      indexName: 'gsi1-cuisine-mealtype',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    })
+
+    table.addGlobalSecondaryIndex({
+      indexName: 'gsi2-diet-cuisine',
+      partitionKey: { name: 'gsi2pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi2sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    })
+
     // ─── Action Group Lambdas ────────────────────────────────────────
     const lambdaDefaults: Partial<ConstructorParameters<typeof NodejsFunction>[2]> = {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -323,6 +338,25 @@ export class BackendStack extends cdk.Stack {
     table.grantReadWriteData(updatePreferencesFn)
     generateMealPlanAsyncFn.grantInvoke(updatePreferencesFn)
 
+    // ─── Regenerate Day Lambda ────────────────────────────────────────
+    const regenerateDayFn = new NodejsFunction(this, 'RegenerateDayFn', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '../lambda/regenerate-day/index.ts'),
+      functionName: 'MealApp-RegenerateDay',
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+        GENERATE_FN_NAME: generateMealPlanAsyncFn.functionName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    })
+
+    table.grantReadWriteData(regenerateDayFn)
+    generateMealPlanAsyncFn.grantInvoke(regenerateDayFn)
+
     // ─── Get Meal Plan Lambda ─────────────────────────────────────────
     const getMealPlanFn = new NodejsFunction(this, 'GetMealPlanFn', {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -434,6 +468,19 @@ export class BackendStack extends cdk.Stack {
     mealPlanResource.addMethod(
       'GET',
       new apigateway.LambdaIntegration(getMealPlanFn),
+      authorizer
+        ? {
+            authorizer,
+            authorizationType: apigateway.AuthorizationType.COGNITO,
+          }
+        : undefined,
+    )
+
+    // PUT /api/meal-plan/regenerate-day
+    const regenerateDayResource = mealPlanResource.addResource('regenerate-day')
+    regenerateDayResource.addMethod(
+      'PUT',
+      new apigateway.LambdaIntegration(regenerateDayFn),
       authorizer
         ? {
             authorizer,

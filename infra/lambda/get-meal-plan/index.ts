@@ -82,6 +82,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         week: result.Item.weekStart,
         mealPlan: result.Item.mealPlan,
         createdAt: result.Item.createdAt,
+        dayRegenerating: result.Item.dayRegenerating ?? null,
       }),
     }
   } catch (error) {

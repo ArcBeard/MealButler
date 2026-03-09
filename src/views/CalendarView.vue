@@ -30,7 +30,7 @@ const iconMap: Record<string, Component> = { Sunrise, Sun, Sunset, Cookie }
 const mealPlanStore = useMealPlanStore()
 const favoritesStore = useFavoritesStore()
 const preferencesStore = usePreferencesStore()
-const { isGenerating } = storeToRefs(mealPlanStore)
+const { isGenerating, dayRegenerating } = storeToRefs(mealPlanStore)
 
 const today = new Date()
 const weekOffset = ref(0)
@@ -115,6 +115,33 @@ const selectedDayLabel = computed(() =>
   }),
 )
 
+const selectedDayISO = computed(() => {
+  const d = selectedDay.value!.date
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+})
+
+const isDayRegenerating = computed(() =>
+  dayRegenerating.value != null,
+)
+
+/** Check if a given weekday index is the one being regenerated */
+function isDayIndexRegenerating(dayIdx: number): boolean {
+  if (!dayRegenerating.value) return false
+  const d = weekDays.value[dayIdx]?.date
+  if (!d) return false
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}` === dayRegenerating.value
+}
+
+const isSelectedDayRegenerating = computed(() =>
+  isDayRegenerating.value && dayRegenerating.value === selectedDayISO.value,
+)
+
 const weekPlan = ref<DayPlan[] | null>(null)
 
 async function loadWeekPlan() {
@@ -151,9 +178,14 @@ async function regeneratePlan() {
   weekPlan.value = polled
 }
 
-function confirmResetMenu() {
+async function confirmResetMenu() {
   showResetDialog.value = false
-  regeneratePlan()
+  if (viewMode.value === 'daily') {
+    const plan = await mealPlanStore.regenerateDay(mondayISO.value, selectedDayISO.value)
+    if (plan) weekPlan.value = plan
+  } else {
+    regeneratePlan()
+  }
 }
 
 watch(mondayISO, () => {
@@ -197,9 +229,14 @@ function toggleFavorite(meal: Meal, event: Event) {
   }
 }
 
-function handleRegenerate(event: Event) {
+async function handleRegenerate(event: Event) {
   event.stopPropagation()
-  regeneratePlan()
+  if (viewMode.value === 'daily') {
+    const plan = await mealPlanStore.regenerateDay(mondayISO.value, selectedDayISO.value)
+    if (plan) weekPlan.value = plan
+  } else {
+    regeneratePlan()
+  }
 }
 
 const WALKTHROUGH_KEY = 'mealapp_show_walkthrough'
@@ -255,14 +292,21 @@ onMounted(() => {
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Reset this week's menu?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {{ viewMode === 'daily' ? `Refresh ${selectedDayLabel}?` : "Reset this week's menu?" }}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Jeeves will generate a completely new meal plan based on your current preferences.
+                {{ viewMode === 'daily'
+                  ? "Jeeves will generate new meals for this day. The rest of your week stays the same."
+                  : "Jeeves will generate a completely new meal plan based on your current preferences."
+                }}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction @click="confirmResetMenu">Reset Menu</AlertDialogAction>
+              <AlertDialogAction @click="confirmResetMenu">
+                {{ viewMode === 'daily' ? 'Refresh Day' : 'Reset Menu' }}
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -356,7 +400,17 @@ onMounted(() => {
           </button>
 
           <!-- Compact Meal Cards Row -->
-          <div class="grid grid-cols-4 gap-2">
+          <div class="relative grid grid-cols-4 gap-2">
+            <!-- Weekly row regenerating overlay -->
+            <div
+              v-if="isDayIndexRegenerating(dayIdx)"
+              class="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-[1px]"
+            >
+              <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin text-primary" />
+                <span>Refreshing...</span>
+              </div>
+            </div>
             <template v-for="type in mealTypes" :key="type">
               <button
                 v-if="weekPlan?.[dayIdx]?.meals[type]"
@@ -391,7 +445,11 @@ onMounted(() => {
       <div class="mb-4 flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">{{ selectedDayLabel }}</h2>
-          <p v-if="dayCalories > 0" class="flex items-center gap-1 text-sm text-muted-foreground">
+          <p v-if="isSelectedDayRegenerating" class="flex items-center gap-1 text-sm text-primary">
+            <Loader2 class="h-3.5 w-3.5 animate-spin" />
+            Generating new meals...
+          </p>
+          <p v-else-if="dayCalories > 0" class="flex items-center gap-1 text-sm text-muted-foreground">
             <Flame class="h-3.5 w-3.5" />
             {{ dayCalories }} cal planned
           </p>
@@ -441,6 +499,19 @@ onMounted(() => {
             <!-- Gradient overlay -->
             <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
 
+            <!-- Regenerating overlay -->
+            <Transition name="fade">
+              <div
+                v-if="isSelectedDayRegenerating"
+                class="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-[2px]"
+              >
+                <div class="flex flex-col items-center gap-1.5">
+                  <Loader2 class="h-6 w-6 animate-spin text-white" />
+                  <span class="text-xs font-medium text-white/80">Refreshing...</span>
+                </div>
+              </div>
+            </Transition>
+
             <!-- Action buttons — top right -->
             <div class="absolute right-2.5 top-2.5 flex gap-1.5">
               <!-- Favorite -->
@@ -459,11 +530,12 @@ onMounted(() => {
               <!-- Regenerate -->
               <button
                 class="flex items-center justify-center rounded-full bg-black/40 p-1.5 backdrop-blur-sm transition-transform active:scale-90"
+                :disabled="isDayRegenerating || isGenerating"
                 @click="handleRegenerate($event)"
               >
                 <RefreshCw
                   class="size-4 text-white"
-                  :class="isGenerating ? 'animate-spin' : ''"
+                  :class="(isDayRegenerating && dayRegenerating === dayPlan?.date) || isGenerating ? 'animate-spin' : ''"
                 />
               </button>
             </div>

@@ -4,9 +4,12 @@ import {
 } from '@aws-sdk/client-bedrock-runtime'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
+  BatchGetCommand,
   DynamoDBDocumentClient,
+  GetCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 
 const bedrock = new BedrockRuntimeClient({})
@@ -62,6 +65,8 @@ interface GenerateEvent {
   pk: string
   preferences: Record<string, unknown>
   weekStart?: string
+  mode?: 'full' | 'single-day'
+  targetDate?: string
 }
 
 interface Favorite {
@@ -203,6 +208,54 @@ Rules:
 - No markdown, no explanation — only the JSON object.`
 }
 
+function buildSingleDaySkeletonPrompt(
+  targetDate: string,
+  preferences: Record<string, unknown>,
+  existingPlan: DayPlan[],
+  favorites: Favorite[],
+): string {
+  const dayIndex = existingPlan.findIndex((d) => d.date === targetDate)
+  const dayName = dayIndex >= 0 ? DAY_NAMES[dayIndex] ?? 'Day' : 'Day'
+
+  const otherDaysSummary = existingPlan
+    .filter((d) => d.date !== targetDate)
+    .map((d) => {
+      const meals = Object.entries(d.meals)
+        .map(([type, meal]) => `${type}: ${meal.name}`)
+        .join(', ')
+      return `  ${d.date}: ${meals}`
+    })
+    .join('\n')
+
+  let favoritesHint = ''
+  if (favorites.length > 0) {
+    const favList = favorites
+      .map((f) => `- ${f.title}${f.cuisines?.length ? ` (${f.cuisines.join(', ')})` : ''}`)
+      .join('\n')
+    favoritesHint = `\n\nThe user has these preferred/favorite recipes — try to incorporate some when appropriate:\n${favList}\n`
+  }
+
+  return `Generate a single day meal plan for ${dayName} (${targetDate}) based on these preferences:
+${JSON.stringify(preferences, null, 2)}
+${favoritesHint}
+The rest of the week already has these meals — generate DIFFERENT, complementary meals:
+${otherDaysSummary}
+
+Return ONLY valid JSON — a single object in this exact format:
+{
+  "date": "${targetDate}",
+  "meals": {
+    "breakfast": { "id": "unique-id", "name": "Meal Name", "prepMinutes": 20, "calories": 350, "emoji": "..." },
+    "lunch": { ... },
+    "dinner": { ... },
+    "snack": { ... }
+  }
+}
+
+Each meal must have: id (unique string), name, prepMinutes (number), calories (number), emoji (single food emoji).
+Include breakfast, lunch, dinner, and snack. No markdown, no explanation — only the JSON object.`
+}
+
 async function callBedrock(prompt: string, maxTokens = 4096): Promise<string> {
   const response = await bedrock.send(
     new ConverseCommand({
@@ -212,6 +265,275 @@ async function callBedrock(prompt: string, maxTokens = 4096): Promise<string> {
     }),
   )
   return response.output?.message?.content?.[0]?.text ?? ''
+}
+
+// ─── Recipe DB helpers ────────────────────────────────────────────
+
+interface RecipeCandidate {
+  recipeId: string
+  title: string
+  estimatedCalories: number
+  readyInMinutes: number
+  imageUrl?: string
+  cuisines?: string[]
+}
+
+async function queryRecipeCandidates(
+  preferences: Record<string, unknown>,
+  limit = 55,
+): Promise<RecipeCandidate[]> {
+  const cuisinePrefs = (preferences.cuisine as string)?.split(',').map((s) => s.trim()) ?? []
+  const dietaryPrefs = (preferences.dietary as string)?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
+  const maxTime = parseInt(preferences.time as string, 10) || 60
+
+  const candidates: RecipeCandidate[] = []
+  const seenIds = new Set<string>()
+
+  // If dietary restrictions exist, query GSI2 first
+  for (const diet of dietaryPrefs) {
+    if (candidates.length >= limit) break
+    for (const cuisine of cuisinePrefs) {
+      if (candidates.length >= limit) break
+      try {
+        const result = await dynamodb.send(
+          new QueryCommand({
+            TableName: TABLE_NAME,
+            IndexName: 'gsi2-diet-cuisine',
+            KeyConditionExpression: 'gsi2pk = :diet AND begins_with(gsi2sk, :cuisine)',
+            ExpressionAttributeValues: {
+              ':diet': `DIET#${diet}`,
+              ':cuisine': `CUISINE#${cuisine}`,
+            },
+            Limit: 20,
+          }),
+        )
+        for (const item of result.Items ?? []) {
+          const id = item.recipeId as string
+          if (!seenIds.has(id) && (item.readyInMinutes as number) <= maxTime) {
+            seenIds.add(id)
+            candidates.push({
+              recipeId: id,
+              title: item.title as string,
+              estimatedCalories: item.estimatedCalories as number,
+              readyInMinutes: item.readyInMinutes as number,
+            })
+          }
+        }
+      } catch (err) {
+        console.warn(`GSI2 query failed for ${diet}/${cuisine}:`, err)
+      }
+    }
+  }
+
+  // Query GSI1 for cuisine + meal type combinations
+  const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack']
+  for (const cuisine of cuisinePrefs) {
+    if (candidates.length >= limit) break
+    for (const mealType of mealTypes) {
+      if (candidates.length >= limit) break
+      try {
+        const paddedMaxTime = String(maxTime).padStart(4, '0')
+        const result = await dynamodb.send(
+          new QueryCommand({
+            TableName: TABLE_NAME,
+            IndexName: 'gsi1-cuisine-mealtype',
+            KeyConditionExpression: 'gsi1pk = :cuisine AND begins_with(gsi1sk, :prefix)',
+            ExpressionAttributeValues: {
+              ':cuisine': `CUISINE#${cuisine}`,
+              ':prefix': `MEALTYPE#${mealType}#`,
+            },
+            Limit: 15,
+          }),
+        )
+        for (const item of result.Items ?? []) {
+          const id = item.recipeId as string
+          if (!seenIds.has(id) && (item.readyInMinutes as number) <= maxTime) {
+            seenIds.add(id)
+            candidates.push({
+              recipeId: id,
+              title: item.title as string,
+              estimatedCalories: item.estimatedCalories as number,
+              readyInMinutes: item.readyInMinutes as number,
+              imageUrl: item.imageUrl as string | undefined,
+            })
+          }
+        }
+      } catch (err) {
+        console.warn(`GSI1 query failed for ${cuisine}/${mealType}:`, err)
+      }
+    }
+  }
+
+  console.log(`Recipe DB: found ${candidates.length} candidates`)
+  return candidates
+}
+
+function buildSelectionPrompt(
+  candidates: RecipeCandidate[],
+  preferences: Record<string, unknown>,
+  favorites: Favorite[],
+  weekStart: string,
+): string {
+  const candidateList = candidates
+    .map((c) => `- id:"${c.recipeId}" "${c.title}" (~${c.readyInMinutes}min, ~${c.estimatedCalories}cal)`)
+    .join('\n')
+
+  let favoritesHint = ''
+  if (favorites.length > 0) {
+    const favList = favorites.map((f) => `- ${f.title}`).join('\n')
+    favoritesHint = `\nUser's favorites (prefer these when matching):\n${favList}\n`
+  }
+
+  return `Select 28 recipes (4 per day × 7 days) from the candidate list below to build a balanced, varied week of meals.
+
+User preferences:
+${JSON.stringify(preferences, null, 2)}
+${favoritesHint}
+Available recipes:
+${candidateList}
+
+Rules:
+- Each day needs: breakfast, lunch, dinner, snack
+- Maximize variety — avoid repeating the same recipe
+- Match meal types appropriately (e.g., oatmeal for breakfast, not dinner)
+- Balance calories across the day
+- If the candidate list doesn't have enough variety for a meal type, you may reuse recipes across different days
+
+Return ONLY valid JSON — an array of 7 objects:
+[
+  {
+    "date": "${weekStart}",
+    "meals": {
+      "breakfast": { "recipeId": "...", "emoji": "..." },
+      "lunch": { "recipeId": "...", "emoji": "..." },
+      "dinner": { "recipeId": "...", "emoji": "..." },
+      "snack": { "recipeId": "...", "emoji": "..." }
+    }
+  }
+]
+
+Dates: ${weekStart} (Monday) through ${addDays(weekStart, 6)} (Sunday).
+Each meal needs: recipeId (from the candidate list) and emoji (single food emoji).
+No markdown, no explanation — only the JSON array.`
+}
+
+async function fetchFullRecipes(recipeIds: string[]): Promise<Map<string, Record<string, unknown>>> {
+  const uniqueIds = [...new Set(recipeIds)]
+  const recipeMap = new Map<string, Record<string, unknown>>()
+
+  // BatchGetItem supports max 100 keys per call
+  for (let i = 0; i < uniqueIds.length; i += 100) {
+    const batch = uniqueIds.slice(i, i + 100)
+    const result = await dynamodb.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [TABLE_NAME]: {
+            Keys: batch.map((id) => ({ pk: `RECIPE#${id}`, sk: 'META' })),
+          },
+        },
+      }),
+    )
+
+    for (const item of result.Responses?.[TABLE_NAME] ?? []) {
+      const id = (item.pk as string).replace('RECIPE#', '')
+      recipeMap.set(id, item as Record<string, unknown>)
+    }
+  }
+
+  return recipeMap
+}
+
+interface SelectionMeal {
+  recipeId: string
+  emoji: string
+}
+
+interface SelectionDay {
+  date: string
+  meals: Record<string, SelectionMeal>
+}
+
+async function generateFromRecipeDB(
+  pk: string,
+  preferences: Record<string, unknown>,
+  favorites: Favorite[],
+  weekStart: string,
+): Promise<DayPlan[] | null> {
+  // Step 1: Query candidates
+  const candidates = await queryRecipeCandidates(preferences)
+  if (candidates.length < 20) {
+    console.log(`Only ${candidates.length} candidates — falling back to Claude generation`)
+    return null
+  }
+
+  // Step 2: Claude selects 28 recipes
+  console.log('Recipe DB: Claude selecting from candidates...')
+  const selectionPrompt = buildSelectionPrompt(candidates, preferences, favorites, weekStart)
+  const selectionText = await callBedrock(selectionPrompt)
+
+  const jsonMatch = selectionText.match(/\[[\s\S]*\]/)
+  if (!jsonMatch) {
+    console.warn('Recipe DB: Claude selection returned no JSON — falling back')
+    return null
+  }
+
+  const selection: SelectionDay[] = JSON.parse(jsonMatch[0])
+  if (selection.length !== 7) {
+    console.warn(`Recipe DB: Expected 7 days, got ${selection.length} — falling back`)
+    return null
+  }
+
+  // Step 3: Collect all recipe IDs and batch-fetch full details
+  const allRecipeIds = selection.flatMap((day) =>
+    Object.values(day.meals).map((m) => m.recipeId),
+  )
+  console.log(`Recipe DB: fetching ${new Set(allRecipeIds).size} unique recipes...`)
+  const recipeMap = await fetchFullRecipes(allRecipeIds)
+
+  // Step 4: Assemble DayPlan array
+  const mealPlan: DayPlan[] = selection.map((day) => {
+    const meals: Record<string, MealEntry> = {}
+    for (const [mealType, sel] of Object.entries(day.meals)) {
+      const full = recipeMap.get(sel.recipeId)
+      if (full) {
+        const recipe: Recipe = {
+          recipeId: sel.recipeId,
+          title: full.title as string,
+          imageUrl: full.imageUrl as string | undefined,
+          sourceUrl: full.sourceUrl as string | undefined,
+          sourceName: full.sourceName as string | undefined,
+          servings: full.servings as number,
+          readyInMinutes: full.readyInMinutes as number,
+          prepMinutes: full.prepMinutes as number | undefined,
+          cookMinutes: full.cookMinutes as number | undefined,
+          ingredients: full.ingredients as Ingredient[],
+          steps: full.steps as RecipeStep[],
+          cuisines: full.cuisines as string[],
+          diets: full.diets as string[],
+        }
+        meals[mealType] = {
+          id: `${day.date}-${mealType}`,
+          name: recipe.title,
+          prepMinutes: recipe.readyInMinutes,
+          calories: full.estimatedCalories as number ?? 400,
+          emoji: sel.emoji,
+          recipe,
+        }
+      } else {
+        // Recipe not found in DB — create placeholder
+        meals[mealType] = {
+          id: `${day.date}-${mealType}`,
+          name: 'Recipe unavailable',
+          prepMinutes: 0,
+          calories: 0,
+          emoji: sel.emoji,
+        }
+      }
+    }
+    return { date: day.date, meals }
+  })
+
+  return mealPlan
 }
 
 export const handler = async (event: GenerateEvent): Promise<void> => {
@@ -224,56 +546,152 @@ export const handler = async (event: GenerateEvent): Promise<void> => {
   const favorites = await fetchUserFavorites(pk)
   console.log(`Found ${favorites.length} favorites for ${pk}`)
 
-  try {
-    // Phase 1: Generate skeleton meal plan
-    console.log('Phase 1: Generating skeleton meal plan...')
-    const skeletonPrompt = buildSkeletonPrompt(preferences, favorites, weekStart)
-    const skeletonText = await callBedrock(skeletonPrompt)
+  // ─── Single-day regeneration mode ───────────────────────────────
+  if (event.mode === 'single-day' && event.targetDate) {
+    const { targetDate } = event
+    console.log(`Single-day mode: regenerating ${targetDate} for ${pk}`)
 
-    const jsonMatch = skeletonText.match(/\[[\s\S]*\]/)
-    const mealPlan: DayPlan[] = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+    try {
+      // Read existing plan for context
+      const existing = await dynamodb.send(
+        new GetCommand({
+          TableName: TABLE_NAME,
+          Key: { pk, sk: `MEALPLAN#${weekStart}` },
+        }),
+      )
 
-    if (mealPlan.length === 0) {
-      throw new Error('Skeleton generation returned empty meal plan')
-    }
+      const existingPlan: DayPlan[] = existing.Item?.mealPlan ?? []
+      if (existingPlan.length === 0) {
+        throw new Error('No existing meal plan found for single-day regeneration')
+      }
 
-    console.log(`Phase 1 complete: ${mealPlan.length} days generated`)
+      // Generate skeleton for single day
+      console.log('Single-day: generating skeleton...')
+      const skeletonPrompt = buildSingleDaySkeletonPrompt(targetDate, preferences, existingPlan, favorites)
+      const skeletonText = await callBedrock(skeletonPrompt)
 
-    // Phase 2: Generate full recipes for each day in parallel
-    console.log('Phase 2: Generating recipes for all days in parallel...')
-    const recipePromises = mealPlan.map((day, i) => {
-      const dayName = DAY_NAMES[i] ?? `Day${i + 1}`
-      const prompt = buildRecipePrompt(day, dayName, preferences)
-      return callBedrock(prompt, 8192).then((text) => {
-        const match = text.match(/\{[\s\S]*\}/)
-        if (!match) {
-          console.warn(`No JSON found in recipe response for ${dayName}`)
-          return null
-        }
-        return JSON.parse(match[0]) as Record<string, Recipe>
-      }).catch((err) => {
-        console.warn(`Recipe generation failed for ${dayName}:`, err)
-        return null
-      })
-    })
+      const jsonMatch = skeletonText.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error('Single-day skeleton returned no JSON')
+      const newDay: DayPlan = JSON.parse(jsonMatch[0])
 
-    const recipeResults = await Promise.all(recipePromises)
+      // Generate recipes for the single day
+      const dayIndex = existingPlan.findIndex((d) => d.date === targetDate)
+      const dayName = dayIndex >= 0 ? DAY_NAMES[dayIndex] ?? 'Day' : 'Day'
 
-    // Merge recipes into meal plan
-    for (let i = 0; i < mealPlan.length; i++) {
-      const recipes = recipeResults[i]
-      if (!recipes) continue
+      console.log('Single-day: generating recipes...')
+      const recipePrompt = buildRecipePrompt(newDay, dayName, preferences)
+      const recipeText = await callBedrock(recipePrompt, 8192)
 
-      for (const [mealType, meal] of Object.entries(mealPlan[i]!.meals)) {
-        const recipe = recipes[mealType]
-        if (recipe) {
-          mealPlan[i]!.meals[mealType] = { ...meal, recipe }
+      const recipeMatch = recipeText.match(/\{[\s\S]*\}/)
+      if (recipeMatch) {
+        const recipes = JSON.parse(recipeMatch[0]) as Record<string, Recipe>
+        for (const [mealType, meal] of Object.entries(newDay.meals)) {
+          const recipe = recipes[mealType]
+          if (recipe) {
+            newDay.meals[mealType as keyof typeof newDay.meals] = { ...meal, recipe }
+          }
         }
       }
+
+      // Replace the target day in the existing plan
+      const updatedPlan = existingPlan.map((day) =>
+        day.date === targetDate ? newDay : day,
+      )
+
+      // Save with dayRegenerating cleared
+      await dynamodb.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: { pk, sk: `MEALPLAN#${weekStart}` },
+          UpdateExpression: 'SET mealPlan = :plan, #s = :status, createdAt = :ts REMOVE dayRegenerating',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: {
+            ':plan': updatedPlan,
+            ':status': 'ready',
+            ':ts': new Date().toISOString(),
+          },
+        }),
+      )
+
+      console.log(`Single-day regeneration complete for ${targetDate}`)
+      return
+    } catch (error) {
+      console.error('Single-day regeneration failed:', error)
+      // Clear the dayRegenerating flag so the UI doesn't show spinner forever
+      await dynamodb.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: { pk, sk: `MEALPLAN#${weekStart}` },
+          UpdateExpression: 'REMOVE dayRegenerating',
+        }),
+      ).catch(() => {}) // best-effort cleanup
+      throw error
+    }
+  }
+
+  try {
+    // ─── Try Recipe DB first ────────────────────────────────────────
+    let mealPlan: DayPlan[] | null = null
+
+    try {
+      console.log('Attempting recipe DB generation...')
+      mealPlan = await generateFromRecipeDB(pk, preferences, favorites, weekStart)
+      if (mealPlan) {
+        console.log('Recipe DB generation successful')
+      }
+    } catch (err) {
+      console.warn('Recipe DB generation failed, falling back to Claude:', err)
     }
 
-    const recipesFound = recipeResults.filter(Boolean).length
-    console.log(`Phase 2 complete: ${recipesFound}/${mealPlan.length} days enriched with recipes`)
+    // ─── Fallback: Claude-generated recipes ─────────────────────────
+    if (!mealPlan) {
+      console.log('Fallback: Generating skeleton meal plan with Claude...')
+      const skeletonPrompt = buildSkeletonPrompt(preferences, favorites, weekStart)
+      const skeletonText = await callBedrock(skeletonPrompt)
+
+      const jsonMatch = skeletonText.match(/\[[\s\S]*\]/)
+      mealPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+
+      if (!mealPlan || mealPlan.length === 0) {
+        throw new Error('Skeleton generation returned empty meal plan')
+      }
+
+      console.log(`Skeleton complete: ${mealPlan.length} days generated`)
+
+      console.log('Generating recipes for all days in parallel...')
+      const recipePromises = mealPlan.map((day, i) => {
+        const dayName = DAY_NAMES[i] ?? `Day${i + 1}`
+        const prompt = buildRecipePrompt(day, dayName, preferences)
+        return callBedrock(prompt, 8192).then((text) => {
+          const match = text.match(/\{[\s\S]*\}/)
+          if (!match) {
+            console.warn(`No JSON found in recipe response for ${dayName}`)
+            return null
+          }
+          return JSON.parse(match[0]) as Record<string, Recipe>
+        }).catch((err) => {
+          console.warn(`Recipe generation failed for ${dayName}:`, err)
+          return null
+        })
+      })
+
+      const recipeResults = await Promise.all(recipePromises)
+
+      for (let i = 0; i < mealPlan.length; i++) {
+        const recipes = recipeResults[i]
+        if (!recipes) continue
+
+        for (const [mealType, meal] of Object.entries(mealPlan[i]!.meals)) {
+          const recipe = recipes[mealType]
+          if (recipe) {
+            mealPlan[i]!.meals[mealType] = { ...meal, recipe }
+          }
+        }
+      }
+
+      const recipesFound = recipeResults.filter(Boolean).length
+      console.log(`Claude fallback complete: ${recipesFound}/${mealPlan.length} days enriched`)
+    }
 
     // Save to DynamoDB
     await dynamodb.send(
