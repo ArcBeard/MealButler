@@ -18,7 +18,10 @@ export async function getConfig(): Promise<AppConfig> {
   try {
     const resp = await fetch('/config.json')
     if (!resp.ok) throw new Error(`Config fetch failed: ${resp.status}`)
-    cachedConfig = await resp.json()
+    const config: AppConfig = await resp.json()
+    // Strip trailing slash to avoid double-slash in API URLs
+    if (config.apiUrl) config.apiUrl = config.apiUrl.replace(/\/+$/, '')
+    cachedConfig = config
     return cachedConfig!
   } catch {
     // Fallback for local development (no config.json available)
