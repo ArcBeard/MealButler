@@ -278,13 +278,26 @@ interface RecipeCandidate {
   cuisines?: string[]
 }
 
+const DEFAULT_CUISINES = ['American', 'Italian', 'Mexican', 'Asian', 'Mediterranean', 'Indian']
+
+function parsePrefArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String)
+  if (typeof value === 'string') return value.split(',').map((s) => s.trim())
+  return []
+}
+
 async function queryRecipeCandidates(
   preferences: Record<string, unknown>,
   limit = 55,
 ): Promise<RecipeCandidate[]> {
-  const cuisinePrefs = (preferences.cuisine as string)?.split(',').map((s) => s.trim()) ?? []
-  const dietaryPrefs = (preferences.dietary as string)?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
+  let cuisinePrefs = parsePrefArray(preferences.cuisine)
+  const dietaryPrefs = parsePrefArray(preferences.dietary).filter((d) => d && d !== 'none')
   const maxTime = parseInt(preferences.time as string, 10) || 60
+
+  // "any" or empty → use a broad set of popular cuisines
+  if (cuisinePrefs.length === 0 || cuisinePrefs.some((c) => c.toLowerCase() === 'any')) {
+    cuisinePrefs = DEFAULT_CUISINES
+  }
 
   const candidates: RecipeCandidate[] = []
   const seenIds = new Set<string>()
