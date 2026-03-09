@@ -2,8 +2,9 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { ChatMessage, ConversationStep, MealPreferences } from '@/types/agent'
 import { createAgentAdapter } from '@/services/agentAdapter'
-import { STEP_ORDER } from '@/data/agentConversation'
+import { STEP_ORDER, buildSummaryMessage } from '@/data/agentConversation'
 import { useAuthStore } from '@/stores/auth'
+import { usePreferencesStore } from '@/stores/preferences'
 
 function emptyPreferences(): MealPreferences {
   return {
@@ -76,23 +77,45 @@ export const useAgentChatStore = defineStore('agentChat', () => {
 
     isAgentTyping.value = true
     try {
-      // Butler introduction
       await new Promise<void>((r) => setTimeout(r, 800))
-      messages.value.push(
-        createMessage(
-          'agent',
-          "Good evening! I'm Jeeves, your personal meal planning butler. 🎩\n\nI shall be helping you plan a week of splendid dining.",
-        ),
-      )
 
-      // Household question (adapter includes its own typing delay)
-      const response = await adapter.getGreeting()
-      const msg = createMessage('agent', response.content)
-      msg.quickReplies = response.quickReplies
-      msg.widget = response.widget
-      messages.value.push(msg)
-      currentStep.value = response.nextStep
-      isMultiSelect.value = response.multiSelect ?? false
+      // Check for existing preferences — returning user flow
+      const prefStore = usePreferencesStore()
+      if (!prefStore.preferences) await prefStore.fetchPreferences()
+
+      if (prefStore.preferences) {
+        // Pre-fill preferences from saved profile
+        preferences.value = { ...prefStore.preferences }
+        adapter = createAgentAdapter(preferences.value)
+        currentStep.value = 'summary'
+
+        const summaryLines = buildSummaryMessage(preferences.value)
+        const msg = createMessage(
+          'agent',
+          `Welcome back! 🎩 I have your meal preferences on file.\n\n${summaryLines}`,
+        )
+        msg.quickReplies = [
+          { label: 'Yes, generate a new plan', value: 'confirm' },
+          { label: 'Update my preferences', value: 'start over' },
+        ]
+        messages.value.push(msg)
+      } else {
+        // New user — full onboarding
+        messages.value.push(
+          createMessage(
+            'agent',
+            "Good evening! I'm Jeeves, your personal meal planning butler. 🎩\n\nI shall be helping you plan a week of splendid dining.",
+          ),
+        )
+
+        const response = await adapter.getGreeting()
+        const msg = createMessage('agent', response.content)
+        msg.quickReplies = response.quickReplies
+        msg.widget = response.widget
+        messages.value.push(msg)
+        currentStep.value = response.nextStep
+        isMultiSelect.value = response.multiSelect ?? false
+      }
     } finally {
       isAgentTyping.value = false
     }
@@ -169,6 +192,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     messageCounter = 0
     preferences.value = emptyPreferences()
     adapter = createAgentAdapter(preferences.value)
+    // Allow startConversation to re-run and check preferences again
   }
 
   return {
